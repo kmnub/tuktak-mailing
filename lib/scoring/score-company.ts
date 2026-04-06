@@ -37,8 +37,8 @@ export function scoreAll(candidates: RawCandidate[]): ScoredCandidate[] {
     freq.set(key, (freq.get(key) ?? 0) + 1);
   }
 
-  // 태그 우선순위 (낮을수록 우선)
-  const TAG_RANK: Record<string, number> = { h2: 0, h3: 1, li: 2, a: 3 };
+  // 태그 우선순위 (낮을수록 우선) — ai는 GPT가 이미 걸러줬으므로 h2와 동급
+  const TAG_RANK: Record<string, number> = { h2: 0, ai: 0, h3: 1, li: 2, a: 3 };
 
   // 2. 동일 key 중 태그 우선순위가 높은 대표 후보 선택
   const best = new Map<string, RawCandidate>();
@@ -61,8 +61,9 @@ export function scoreAll(candidates: RawCandidate[]): ScoredCandidate[] {
     let score = 0;
     const { name, selector, source_url } = c;
 
-    // 태그 점수
-    if (selector === "h2" || selector === "h3") score += 3;
+    // 태그 점수 — ai는 GPT가 이미 필터링한 결과이므로 높은 신뢰도 부여
+    if (selector === "ai") score += 4;
+    else if (selector === "h2" || selector === "h3") score += 3;
     else if (selector === "a") score += 2;
     else if (selector === "li") score += 1;
 
