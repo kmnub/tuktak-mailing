@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
+import * as XLSX from "xlsx";
 
 /* ─── 타입 ─────────────────────────────────────────── */
 interface Exhibition {
@@ -86,10 +87,12 @@ function EditableCell({
   value,
   placeholder,
   onSave,
+  isUrl = false,
 }: {
   value: string;
   placeholder: string;
   onSave: (v: string) => void;
+  isUrl?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
@@ -118,20 +121,35 @@ function EditableCell({
   }
 
   return (
-    <button
-      onClick={() => setEditing(true)}
-      className="group flex items-center gap-1 text-left w-full"
-      title="클릭하여 수정"
-    >
+    <div className="group flex items-center gap-1">
       {value ? (
-        <span className="text-xs text-gray-700 font-mono truncate max-w-[140px]">{value}</span>
+        isUrl ? (
+          <a
+            href={value.startsWith("http") ? value : `https://${value}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            className="text-xs text-indigo-600 hover:text-indigo-800 hover:underline font-mono truncate max-w-[130px]"
+            title={value}
+          >
+            {value.replace(/^https?:\/\/(www\.)?/, "")}
+          </a>
+        ) : (
+          <span className="text-xs text-gray-700 font-mono truncate max-w-[140px]">{value}</span>
+        )
       ) : (
         <span className="text-xs text-gray-300 italic">{placeholder}</span>
       )}
-      <svg className="w-3 h-3 text-gray-300 group-hover:text-indigo-400 flex-shrink-0 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-      </svg>
-    </button>
+      <button
+        onClick={() => setEditing(true)}
+        title="클릭하여 수정"
+        className="opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
+      >
+        <svg className="w-3 h-3 text-gray-400 hover:text-indigo-400 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+        </svg>
+      </button>
+    </div>
   );
 }
 
@@ -411,6 +429,32 @@ export default function ExhibitionDetailPage() {
     await loadData();
   };
 
+  /* ─── 엑셀 다운로드 ─── */
+  const downloadExcel = () => {
+    const rows = sortedCompanies
+      .filter((c) => c.status !== "excluded")
+      .map((c) => ({
+        기업명: c.normalized_name || c.raw_name,
+        홈페이지: c.homepage ?? "",
+        이메일: c.emails.join(", "),
+        전화번호: c.phones.join(", "),
+        상태: c.status === "confirmed" ? "확정" : "대기",
+      }));
+
+    const ws = XLSX.utils.json_to_sheet(rows);
+    ws["!cols"] = [
+      { wch: 30 }, // 기업명
+      { wch: 40 }, // 홈페이지
+      { wch: 35 }, // 이메일
+      { wch: 20 }, // 전화번호
+      { wch: 8 },  // 상태
+    ];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "기업목록");
+    const filename = `${exhibition?.name ?? "기업목록"}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    XLSX.writeFile(wb, filename);
+  };
+
   /* ─── 정렬 ─── */
   const handleSort = (col: SortCol) => {
     if (sortCol === col) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
@@ -627,6 +671,16 @@ export default function ExhibitionDetailPage() {
                     </>
                   )}
                   <button
+                    onClick={downloadExcel}
+                    disabled={companies.length === 0}
+                    className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-emerald-200 text-emerald-700 hover:bg-emerald-50 transition-colors disabled:opacity-40"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                    </svg>
+                    엑셀 다운로드
+                  </button>
+                  <button
                     onClick={() => setConfirmReset(true)}
                     disabled={resetting}
                     className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 transition-colors"
@@ -797,12 +851,13 @@ export default function ExhibitionDetailPage() {
                           <ScoreBadge score={c.score} />
                         </td>
 
-                        {/* 홈페이지 (수기 입력 가능) */}
+                        {/* 홈페이지 (수기 입력 가능, 값 있으면 링크) */}
                         <td className="px-3 py-2.5 min-w-[160px] max-w-[200px]">
                           <EditableCell
                             value={c.homepage ?? ""}
                             placeholder="홈페이지 입력"
                             onSave={(v) => saveContact(c.id, "homepage", v)}
+                            isUrl
                           />
                         </td>
 

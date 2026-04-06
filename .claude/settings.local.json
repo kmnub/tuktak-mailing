@@ -18,7 +18,12 @@
       "Bash(mkdir -p /Users/byunghoon/Desktop/WORK/MAILING/app/api/contacts/\\\\[id\\\\])",
       "Bash(npx tsc:*)",
       "Bash(git add:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(curl -s -X POST http://localhost:3000/api/debug-enrich -H 'Content-Type: application/json' -d '{\"name\":\"삼성전자\"}')",
+      "Bash(python3 -m json.tool)",
+      "Bash(curl -s http://localhost:3000/api/exhibitions)",
+      "Bash(curl:*)"
     ]
   }
 }
