@@ -1,0 +1,33 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git config:*)",
+      "Bash(npx create-next-app@latest . --typescript --eslint --tailwind --app --no-src-dir --import-alias \"@/*\")",
+      "Bash(npx create-next-app@latest mailing-app --typescript --eslint --tailwind --app --no-src-dir --import-alias \"@/*\")",
+      "Bash(cp -r mailing-app/. MAILING/)",
+      "Bash(rm -rf mailing-app)",
+      "Bash(cp -r \"/c/Users/qudgn/OneDrive/바탕 화면/TUKTAK/mailing-app/app\" \"/c/Users/qudgn/OneDrive/바탕 화면/TUKTAK/MAILING/\")",
+      "Bash(cp -r \"/c/Users/qudgn/OneDrive/바탕 화면/TUKTAK/mailing-app/public\" \"/c/Users/qudgn/OneDrive/바탕 화면/TUKTAK/MAILING/\")",
+      "Bash(cp \"/c/Users/qudgn/OneDrive/바탕 화면/TUKTAK/mailing-app/package.json\" \"/c/Users/qudgn/OneDrive/바탕 화면/TUKTAK/MAILING/\")",
+      "Bash(cp \"/c/Users/qudgn/OneDrive/바탕 화면/TUKTAK/mailing-app/eslint.config.mjs\" \"/c/Users/qudgn/OneDrive/바탕 화면/TUKTAK/MAILING/\")",
+      "Bash(npm install:*)",
+      "Bash(npx tsc:*)",
+      "Bash(node -e \"console.log\\(require\\(''./node_modules/next/package.json''\\).version\\)\")",
+      "Bash(node -e \"const n = require\\(''''./node_modules/next''''\\); console.log\\(Object.keys\\(n\\).slice\\(0,10\\)\\)\")",
+      "Bash(node -e \"const d=require\\(''''/dev/stdin''''\\); console.log\\(''''exports keys:'''', Object.keys\\(d.exports||{}\\).slice\\(0,5\\)\\); console.log\\(''''types:'''', d.types || d.typings\\)\")",
+      "Bash(grep -r export.*Metadata '/c/Users/qudgn/OneDrive/바탕 화면/TUKTAK/MAILING/node_modules/next/dist/' --include=*.d.ts -l)",
+      "Bash(find '/c/Users/qudgn/OneDrive/바탕 화면/TUKTAK/MAILING/node_modules/next' -name *.d.ts -not -path */node_modules/*)",
+      "Bash(xargs grep:*)",
+      "Bash(find '/c/Users/qudgn/OneDrive/바탕 화면/TUKTAK/MAILING/node_modules/next' -maxdepth 3 -name *.d.ts)",
+      "Bash(find '/c/Users/qudgn/OneDrive/바탕 화면/TUKTAK/MAILING/node_modules/next' -name *.d.ts)",
+      "Bash(find '/c/Users/qudgn/OneDrive/바탕 화면/TUKTAK/MAILING/node_modules/next' -maxdepth 4 -name *.d.ts)",
+      "Bash(find '/c/Users/qudgn/OneDrive/바탕 화면/TUKTAK/MAILING/node_modules/next/dist/compiled/@next/font/dist/google' -name *.d.ts)",
+      "Bash(find '/c/Users/qudgn/OneDrive/바탕 화면/TUKTAK/MAILING/node_modules/next/dist/compiled/@next' -maxdepth 5 -name *.d.ts)",
+      "Bash(npm run:*)",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(json.dumps\\({k:d[k] for k in [''''scripts'''',''''bin'''',''''main'''',''''exports''''] if k in d}, indent=2\\)\\)\")",
+      "Bash(node -e \"const d=require\\(''''./node_modules/next/package.json''''\\); console.log\\(JSON.stringify\\({scripts:d.scripts,bin:d.bin,main:d.main}, null, 2\\)\\)\")",
+      "Bash(node -e \"console.log\\(require\\(''''./node_modules/next/package.json''''\\).version\\)\")",
+      "Bash(npx playwright:*)"
+    ]
+  }
+}

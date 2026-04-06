@@ -2,11 +2,18 @@ import { NextRequest, NextResponse } from "next/server";
 import * as cheerio from "cheerio";
 import { extractCompanies } from "@/lib/parser/extract-companies";
 import { extractCompaniesWithAI } from "@/lib/ai/extract-with-ai";
-import { dedupe } from "@/lib/normalize/dedupe";
+import { extractCompaniesAI } from "@/lib/crawl/ai-extractor";
+import { fetchWithPlaywright } from "@/lib/crawl/playwright-crawler";
+import { scoreAll, type RawCandidate } from "@/lib/scoring/score-company";
+import { filterCompanies } from "@/lib/filter/filter-companies";
 import { supabase } from "@/lib/supabase/client";
+
+// Playwright 크롤링은 최대 60초
+export const maxDuration = 60;
 
 const MAX_PAGES = 50;
 const FETCH_TIMEOUT_MS = 15000;
+const PLAYWRIGHT_THRESHOLD = 5; // 이 수 이하면 Playwright 시도
 
 const FETCH_HEADERS = {
   "User-Agent":
@@ -25,6 +32,13 @@ async function fetchHtml(url: string): Promise<string | null> {
   } catch {
     return null;
   }
+}
+
+/** body 전체 텍스트 추출 (AI fallback용) */
+function getCleanText(html: string): string {
+  const $ = cheerio.load(html);
+  $("script, style, nav, header, footer, noscript").remove();
+  return $("body").text().replace(/\s+/g, " ").trim();
 }
 
 /**
@@ -70,8 +84,6 @@ function detectPageUrls(html: string, originalUrl: string): string[] {
 
 /**
  * 총 페이지 수를 지정하면 페이지 URL을 직접 생성한다.
- * 일반 파라미터명 후보(page, cpage, p)를 차례로 시도해 실제 콘텐츠가
- * 달라지는 파라미터를 선택한다.
  */
 async function buildPageUrls(
   firstHtml: string,
@@ -81,7 +93,6 @@ async function buildPageUrls(
   const base = new URL(originalUrl);
   const PAGE_PARAMS = ["page", "cpage", "p", "pagenum", "pg"];
 
-  // 이미 사용 중인 파라미터가 있으면 그대로 사용
   for (const param of PAGE_PARAMS) {
     if (base.searchParams.has(param)) {
       return Array.from({ length: totalPages - 1 }, (_, i) => {
@@ -92,13 +103,11 @@ async function buildPageUrls(
     }
   }
 
-  // 파라미터가 없으면 page=2 URL을 실제로 fetch해 1페이지와 내용이 다른지 확인
   for (const param of PAGE_PARAMS) {
     const testUrl = new URL(originalUrl);
     testUrl.searchParams.set(param, "2");
     const testHtml = await fetchHtml(testUrl.toString());
     if (testHtml && testHtml !== firstHtml) {
-      // 내용이 다르면 이 파라미터가 페이지네이션용임
       return Array.from({ length: totalPages - 1 }, (_, i) => {
         const u = new URL(originalUrl);
         u.searchParams.set(param, String(i + 2));
@@ -107,7 +116,6 @@ async function buildPageUrls(
     }
   }
 
-  // 판별 실패 시 기본값 page 사용
   return Array.from({ length: totalPages - 1 }, (_, i) => {
     const u = new URL(originalUrl);
     u.searchParams.set("page", String(i + 2));
@@ -149,9 +157,23 @@ export async function POST(req: NextRequest) {
     }
 
     const shouldUseAI = useAI && !!process.env.OPENAI_API_KEY;
+    const crawlId = crypto.randomUUID();
 
-    // [1] 첫 페이지 수집
-    const firstHtml = await fetchHtml(url);
+    // ── [1] 첫 페이지 수집 ──────────────────────────────────────────────────
+    let firstHtml = await fetchHtml(url);
+    let extractionMethod: "html" | "playwright" | "ai" = "html";
+
+    // 빠른 점검: 정적 fetch로 의미 있는 콘텐츠가 없으면 Playwright 시도
+    const quickCheck = firstHtml ? extractCompanies(firstHtml, url) : [];
+    if (quickCheck.length < PLAYWRIGHT_THRESHOLD) {
+      console.log(`[크롤링] 정적 결과 ${quickCheck.length}개 → Playwright 시도`);
+      const pwHtml = await fetchWithPlaywright(url);
+      if (pwHtml) {
+        firstHtml = pwHtml;
+        extractionMethod = "playwright";
+      }
+    }
+
     if (!firstHtml) {
       return NextResponse.json(
         { error: "페이지 접근 실패: HTML을 가져올 수 없습니다." },
@@ -159,18 +181,15 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // [2] 추가 페이지 URL 결정
+    // ── [2] 추가 페이지 URL 결정 ────────────────────────────────────────────
     let additionalPageUrls: string[];
-
     if (totalPages && totalPages > 1) {
-      // 사용자가 총 페이지 수를 직접 지정한 경우
       additionalPageUrls = await buildPageUrls(firstHtml, url, totalPages);
     } else {
-      // 자동 탐지
       additionalPageUrls = detectPageUrls(firstHtml, url);
     }
 
-    // [3] 추가 페이지 병렬 수집
+    // ── [3] 추가 페이지 병렬 수집 ───────────────────────────────────────────
     const additionalHtmls = await Promise.all(
       additionalPageUrls.map((pageUrl) => fetchHtml(pageUrl))
     );
@@ -183,13 +202,15 @@ export async function POST(req: NextRequest) {
     ];
 
     console.log(
-      `[크롤링] ${url} — ${allPages.length}페이지, 추출방법: ${shouldUseAI ? "AI" : "정적"}`
+      `[크롤링] ${url} — ${allPages.length}페이지, 추출방법: ${shouldUseAI ? "AI(명시)" : extractionMethod}`
     );
 
-    // [4] 기업명 추출
-    let rawCandidates: { name: string; source_url: string }[];
+    // ── [4] 기업명 추출 ──────────────────────────────────────────────────────
+    let rawCandidates: RawCandidate[];
 
     if (shouldUseAI) {
+      // 사용자가 "AI 추출 사용" 체크 → extract-with-ai 사용
+      extractionMethod = "ai";
       const perPageResults = await Promise.all(
         allPages.map(({ html, pageUrl }) =>
           extractCompaniesWithAI(html, pageUrl).catch((err) => {
@@ -198,22 +219,42 @@ export async function POST(req: NextRequest) {
           })
         )
       );
-      rawCandidates = perPageResults.flat();
+      rawCandidates = perPageResults.flat().map((c) => ({
+        ...c,
+        selector: (c as { selector?: string }).selector ?? "ai",
+      }));
     } else {
+      // 정적 추출
       rawCandidates = allPages.flatMap(({ html, pageUrl }) =>
         extractCompanies(html, pageUrl)
       );
+
+      // ── [5] AI auto-fallback: 결과가 너무 적으면 최후 시도 ─────────────
+      if (rawCandidates.length < PLAYWRIGHT_THRESHOLD && process.env.OPENAI_API_KEY) {
+        console.log(`[크롤링] 결과 ${rawCandidates.length}개 → AI fallback 시도`);
+        extractionMethod = "ai";
+        const aiResults = await extractCompaniesAI(
+          getCleanText(firstHtml),
+          url
+        );
+        rawCandidates = [...rawCandidates, ...aiResults];
+      }
     }
 
-    // [5] 중복 제거
-    const uniqueCompanies = dedupe(rawCandidates);
+    // ── [6] 스코어링 → 필터링 ───────────────────────────────────────────────
+    const scored = scoreAll(rawCandidates);
+    const filtered = filterCompanies(scored);
 
-    // [6] DB 저장
-    if (uniqueCompanies.length > 0) {
-      const records = uniqueCompanies.map((c) => ({
+    // ── [7] DB 저장 ──────────────────────────────────────────────────────────
+    if (filtered.length > 0) {
+      const records = filtered.map((c) => ({
+        crawl_id: crawlId,
         raw_name: c.name,
         normalized_name: c.normalizedName,
         source_url: c.source_url,
+        score: c.score,
+        selector: c.selector,
+        extraction_method: extractionMethod,
         status: "candidate" as const,
       }));
 
@@ -232,11 +273,12 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       success: true,
+      crawl_id: crawlId,
       source_url: url,
       pages_fetched: allPages.length,
-      extraction_method: shouldUseAI ? "ai" : "static",
-      count: uniqueCompanies.length,
-      companies: uniqueCompanies.map((c) => c.name),
+      extraction_method: extractionMethod,
+      count: filtered.length,
+      companies: filtered.map((c) => ({ name: c.name, score: c.score })),
     });
   } catch (err) {
     console.error("[크롤링 API 오류]", err);

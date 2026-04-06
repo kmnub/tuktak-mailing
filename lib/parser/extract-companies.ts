@@ -61,7 +61,7 @@ function isValidCompanyName(text: string): boolean {
 export function extractCompanies(
   html: string,
   sourceUrl: string
-): { name: string; source_url: string }[] {
+): { name: string; source_url: string; selector: string }[] {
   const $ = cheerio.load(html);
 
   // 1단계: 명백한 UI 노이즈 영역 제거
@@ -82,7 +82,7 @@ export function extractCompanies(
     $(".content").first().length ? $(".content").first() :
     $("body");
 
-  const candidates: { name: string; source_url: string }[] = [];
+  const candidates: { name: string; source_url: string; selector: string }[] = [];
 
   // h2/h3 우선(헤딩은 섹션 제목), 그 다음 li, a 순
   const selectors = ["h2", "h3", "li", "a"] as const;
@@ -91,7 +91,7 @@ export function extractCompanies(
     $root.find(selector).each((_, el) => {
       const text = $(el).clone().children().remove().end().text().trim();
       if (text && isValidCompanyName(text)) {
-        candidates.push({ name: text, source_url: sourceUrl });
+        candidates.push({ name: text, source_url: sourceUrl, selector });
       }
     });
   }

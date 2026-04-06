@@ -1,19 +1,32 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
+
+interface CompanyPreview {
+  name: string;
+  score: number;
+}
 
 interface CrawlResponse {
   success: boolean;
+  crawl_id: string;
   source_url: string;
   pages_fetched: number;
-  extraction_method: "ai" | "static";
+  extraction_method: "html" | "playwright" | "ai";
   count: number;
-  companies: string[];
+  companies: CompanyPreview[];
 }
 
 function isValidUrl(value: string): boolean {
   return /^https?:\/\/.+/.test(value);
 }
+
+const METHOD_LABEL: Record<string, string> = {
+  html: "정적 추출",
+  playwright: "브라우저 추출",
+  ai: "AI 추출",
+};
 
 export default function CrawlsPage() {
   const [url, setUrl] = useState("");
@@ -56,7 +69,6 @@ export default function CrawlsPage() {
       }
 
       setResult(data);
-      console.log("[크롤링 결과]", data);
     } catch {
       setError("요청 중 네트워크 오류가 발생했습니다.");
     } finally {
@@ -126,20 +138,48 @@ export default function CrawlsPage() {
 
       {result && (
         <div className="mt-6">
-          <p className="text-sm text-gray-500 mb-2">
-            추출된 기업 후보:{" "}
-            <span className="font-semibold text-gray-800">{result.count}개</span>
-            {" · "}
-            {result.pages_fetched}페이지 수집
-            {" · "}
-            <span className={result.extraction_method === "ai" ? "text-blue-600" : "text-gray-500"}>
-              {result.extraction_method === "ai" ? "AI 추출" : "정적 추출"}
-            </span>
-          </p>
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-sm text-gray-500">
+              추출된 기업 후보:{" "}
+              <span className="font-semibold text-gray-800">{result.count}개</span>
+              {" · "}
+              {result.pages_fetched}페이지 수집
+              {" · "}
+              <span
+                className={
+                  result.extraction_method === "ai"
+                    ? "text-blue-600"
+                    : result.extraction_method === "playwright"
+                    ? "text-purple-600"
+                    : "text-gray-500"
+                }
+              >
+                {METHOD_LABEL[result.extraction_method] ?? result.extraction_method}
+              </span>
+            </p>
+            <Link
+              href={`/crawls/${result.crawl_id}`}
+              className="text-sm font-medium text-blue-600 hover:underline"
+            >
+              결과 검수하기 →
+            </Link>
+          </div>
+
           <ul className="border border-gray-200 rounded divide-y divide-gray-100 max-h-96 overflow-y-auto">
-            {result.companies.map((name, i) => (
-              <li key={i} className="px-3 py-2 text-sm text-gray-700">
-                {name}
+            {result.companies.map((c, i) => (
+              <li key={i} className="px-3 py-2 text-sm text-gray-700 flex items-center justify-between">
+                <span>{c.name}</span>
+                <span
+                  className={`text-xs px-1.5 py-0.5 rounded font-mono ${
+                    c.score >= 7
+                      ? "bg-green-100 text-green-700"
+                      : c.score >= 5
+                      ? "bg-blue-100 text-blue-700"
+                      : "bg-gray-100 text-gray-500"
+                  }`}
+                >
+                  {c.score}점
+                </span>
               </li>
             ))}
           </ul>
