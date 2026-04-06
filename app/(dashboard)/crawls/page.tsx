@@ -5,6 +5,8 @@ import { useState } from "react";
 interface CrawlResponse {
   success: boolean;
   source_url: string;
+  pages_fetched: number;
+  extraction_method: "ai" | "static";
   count: number;
   companies: string[];
 }
@@ -15,6 +17,7 @@ function isValidUrl(value: string): boolean {
 
 export default function CrawlsPage() {
   const [url, setUrl] = useState("");
+  const [useAI, setUseAI] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<CrawlResponse | null>(null);
@@ -35,7 +38,7 @@ export default function CrawlsPage() {
       const res = await fetch("/api/crawl", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url }),
+        body: JSON.stringify({ url, useAI }),
       });
 
       const data: CrawlResponse & { error?: string } = await res.json();
@@ -67,6 +70,19 @@ export default function CrawlsPage() {
           disabled={loading}
           className="border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
         />
+
+        <label className="flex items-center gap-2 text-sm text-gray-600 select-none cursor-pointer w-fit">
+          <input
+            type="checkbox"
+            checked={useAI}
+            onChange={(e) => setUseAI(e.target.checked)}
+            disabled={loading}
+            className="w-4 h-4 accent-blue-600"
+          />
+          AI 추출 사용
+          <span className="text-xs text-gray-400">(OpenAI GPT — 문맥 기반, 더 정확)</span>
+        </label>
+
         <button
           type="submit"
           disabled={loading || !url.trim()}
@@ -87,6 +103,12 @@ export default function CrawlsPage() {
           <p className="text-sm text-gray-500 mb-2">
             추출된 기업 후보:{" "}
             <span className="font-semibold text-gray-800">{result.count}개</span>
+            {" · "}
+            {result.pages_fetched}페이지 수집
+            {" · "}
+            <span className={result.extraction_method === "ai" ? "text-blue-600" : "text-gray-500"}>
+              {result.extraction_method === "ai" ? "AI 추출" : "정적 추출"}
+            </span>
           </p>
           <ul className="border border-gray-200 rounded divide-y divide-gray-100 max-h-96 overflow-y-auto">
             {result.companies.map((name, i) => (
