@@ -168,6 +168,7 @@ export default function ExhibitionDetailPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
   const [updatingIds, setUpdatingIds] = useState<Set<string>>(new Set());
+  const lastSelectedIndexRef = useRef<number | null>(null);
 
   // 정렬
   const [sortCol, setSortCol] = useState<SortCol>("score");
@@ -176,6 +177,9 @@ export default function ExhibitionDetailPage() {
   // 확인 다이얼로그
   const [confirmReset, setConfirmReset] = useState(false);
   const [confirmDeleteSelected, setConfirmDeleteSelected] = useState(false);
+
+  // 이메일 복사
+  const [emailCopied, setEmailCopied] = useState(false);
 
   const urlInputRef = useRef<HTMLInputElement>(null);
 
@@ -258,12 +262,29 @@ export default function ExhibitionDetailPage() {
   const isPartial = activeCompanies.some((c) => selectedIds.has(c.id)) && !isAllSelected;
 
   const toggleAll = () => {
+    lastSelectedIndexRef.current = null;
     if (isAllSelected) setSelectedIds(new Set());
     else setSelectedIds(new Set(activeCompanies.map((c) => c.id)));
   };
 
-  const toggleOne = (cid: string) =>
-    setSelectedIds((p) => { const n = new Set(p); n.has(cid) ? n.delete(cid) : n.add(cid); return n; });
+  const toggleOne = (cid: string, index: number, shiftKey: boolean) => {
+    if (shiftKey && lastSelectedIndexRef.current !== null) {
+      const from = Math.min(lastSelectedIndexRef.current, index);
+      const to = Math.max(lastSelectedIndexRef.current, index);
+      const rangeIds = sortedCompanies
+        .slice(from, to + 1)
+        .filter((c) => c.status !== "excluded")
+        .map((c) => c.id);
+      setSelectedIds((p) => {
+        const n = new Set(p);
+        rangeIds.forEach((rid) => n.add(rid));
+        return n;
+      });
+    } else {
+      lastSelectedIndexRef.current = index;
+      setSelectedIds((p) => { const n = new Set(p); n.has(cid) ? n.delete(cid) : n.add(cid); return n; });
+    }
+  };
 
   /* ─── 삭제 ─── */
   const deleteSelected = async () => {
@@ -357,6 +378,22 @@ export default function ExhibitionDetailPage() {
 
   /* ─── 수기 연락처 저장 ─── */
   const saveContact = async (cid: string, field: "homepage" | "email" | "phone", value: string) => {
+    // 낙관적 UI 업데이트 — API 응답 전에 즉시 반영
+    setCompanies((prev) =>
+      prev.map((c) => {
+        if (c.id !== cid) return c;
+        if (field === "homepage") return { ...c, homepage: value || null, enriched: !!(value || c.emails.length || c.phones.length) };
+        if (field === "email") {
+          const emails = value ? [value, ...c.emails.filter((e) => e !== value)] : c.emails;
+          return { ...c, emails, enriched: !!(c.homepage || emails.length || c.phones.length) };
+        }
+        if (field === "phone") {
+          const phones = value ? [value, ...c.phones.filter((p) => p !== value)] : c.phones;
+          return { ...c, phones, enriched: !!(c.homepage || c.emails.length || phones.length) };
+        }
+        return c;
+      })
+    );
     await fetch(`/api/companies/${cid}/contact`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -671,15 +708,39 @@ export default function ExhibitionDetailPage() {
                         onClick={() => handleSort(col)}
                         className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider cursor-pointer hover:text-gray-700 select-none"
                       >
-                        {label}
-                        <SortIcon col={col} active={sortCol === col} dir={sortDir} />
+                        {col === "email" ? (
+                          <div className="flex items-center gap-1.5">
+                            <span>{label}</span>
+                            <SortIcon col={col} active={sortCol === col} dir={sortDir} />
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                const allEmails = [...new Set(companies.flatMap((c) => c.emails).filter(Boolean))];
+                                if (allEmails.length === 0) return;
+                                navigator.clipboard.writeText(allEmails.join("\n")).then(() => {
+                                  setEmailCopied(true);
+                                  setTimeout(() => setEmailCopied(false), 2000);
+                                });
+                              }}
+                              title="이메일 전체 복사"
+                              className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-600 hover:bg-indigo-100 font-medium transition-colors border border-indigo-100 whitespace-nowrap normal-case tracking-normal"
+                            >
+                              {emailCopied ? "복사됨 ✓" : "전체 복사"}
+                            </button>
+                          </div>
+                        ) : (
+                          <>
+                            {label}
+                            <SortIcon col={col} active={sortCol === col} dir={sortDir} />
+                          </>
+                        )}
                       </th>
                     ))}
                     <th className="px-3 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider w-28">액션</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
-                  {sortedCompanies.map((c) => {
+                  {sortedCompanies.map((c, rowIndex) => {
                     const isUpdating = updatingIds.has(c.id);
                     const isDeleting = deletingIds.has(c.id);
                     const isSelected = selectedIds.has(c.id);
@@ -698,7 +759,7 @@ export default function ExhibitionDetailPage() {
                             type="checkbox"
                             checked={isSelected}
                             disabled={c.status === "excluded" || isDeleting}
-                            onChange={() => toggleOne(c.id)}
+                            onChange={(e) => toggleOne(c.id, rowIndex, ((e.nativeEvent as MouseEvent).shiftKey) ?? false)}
                             className="w-4 h-4 accent-indigo-600 cursor-pointer disabled:cursor-not-allowed"
                           />
                         </td>
