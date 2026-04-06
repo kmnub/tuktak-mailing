@@ -155,7 +155,18 @@ export default function CrawlDetailPage() {
                         className="w-4 h-4 accent-green-600"
                       />
                     </td>
-                    <td className="px-3 py-2 text-gray-800">{c.raw_name}</td>
+                    <td className="px-3 py-2 text-gray-800">
+                      {c.status === "confirmed" ? (
+                        <Link
+                          href={`/companies/${c.id}`}
+                          className="text-blue-700 hover:underline font-medium"
+                        >
+                          {c.raw_name}
+                        </Link>
+                      ) : (
+                        c.raw_name
+                      )}
+                    </td>
                     <td className="px-3 py-2 text-center">
                       <span
                         className={`text-xs px-1.5 py-0.5 rounded font-mono ${
