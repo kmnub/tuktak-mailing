@@ -141,7 +141,8 @@ export async function POST(req: NextRequest) {
       useAI = false,
       totalPages,
       exhibitionId,
-    } = body as { url: string; useAI?: boolean; totalPages?: number; exhibitionId?: string };
+      singlePage = false,
+    } = body as { url: string; useAI?: boolean; totalPages?: number; exhibitionId?: string; singlePage?: boolean };
 
     if (!/^https?:\/\/.+/.test(url)) {
       return NextResponse.json(
@@ -184,7 +185,9 @@ export async function POST(req: NextRequest) {
 
     // ── [2] 추가 페이지 URL 결정 ────────────────────────────────────────────
     let additionalPageUrls: string[];
-    if (totalPages && totalPages > 1) {
+    if (singlePage) {
+      additionalPageUrls = []; // 단일 페이지 모드: 페이지네이션 없이 이 URL만 처리
+    } else if (totalPages && totalPages > 1) {
       additionalPageUrls = await buildPageUrls(firstHtml, url, totalPages);
     } else {
       additionalPageUrls = detectPageUrls(firstHtml, url);

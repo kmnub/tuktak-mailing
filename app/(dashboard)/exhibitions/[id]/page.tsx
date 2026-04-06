@@ -27,18 +27,22 @@ interface Company {
   enriched: boolean;
 }
 
+type SortCol = "name" | "score" | "status" | "homepage" | "email" | "phone";
+type SortDir = "asc" | "desc";
+
 /* ─── 아이콘 ────────────────────────────────────────── */
-function CalendarIcon() {
-  return <svg className="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>;
-}
-function LocationIcon() {
-  return <svg className="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>;
-}
-function PersonIcon() {
-  return <svg className="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>;
-}
 function SpinnerIcon({ className = "w-4 h-4" }: { className?: string }) {
-  return <svg className={`animate-spin ${className}`} fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>;
+  return (
+    <svg className={`animate-spin ${className}`} fill="none" viewBox="0 0 24 24">
+      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+    </svg>
+  );
+}
+
+function SortIcon({ col, active, dir }: { col: string; active: boolean; dir: SortDir }) {
+  if (!active) return <span className="ml-1 text-gray-300 text-xs">↕</span>;
+  return <span className="ml-1 text-indigo-500 text-xs">{dir === "asc" ? "↑" : "↓"}</span>;
 }
 
 /* ─── 유틸 ──────────────────────────────────────────── */
@@ -47,9 +51,28 @@ function formatDate(d?: string) {
   return new Intl.DateTimeFormat("ko-KR", { year: "numeric", month: "long", day: "numeric" }).format(new Date(d));
 }
 
+function generatePageUrls(baseUrl: string, numPages: number): string[] {
+  if (numPages <= 1) return [baseUrl];
+  try {
+    const u = new URL(baseUrl);
+    const pageParams = ["page", "cpage", "p", "pagenum", "pg"];
+    const existingParam = pageParams.find((p) => u.searchParams.has(p)) ?? "page";
+    return Array.from({ length: numPages }, (_, i) => {
+      const next = new URL(baseUrl);
+      next.searchParams.set(existingParam, String(i + 1));
+      return next.toString();
+    });
+  } catch {
+    return [baseUrl];
+  }
+}
+
 function ScoreBadge({ score }: { score: number }) {
-  const color = score >= 7 ? "bg-emerald-50 text-emerald-700" : score >= 5 ? "bg-blue-50 text-blue-700" : "bg-gray-100 text-gray-500";
-  return <span className={`text-xs px-1.5 py-0.5 rounded font-mono font-semibold ${color}`}>{score}</span>;
+  const cls =
+    score >= 7 ? "bg-emerald-50 text-emerald-700" :
+    score >= 5 ? "bg-blue-50 text-blue-700" :
+    "bg-gray-100 text-gray-500";
+  return <span className={`text-xs px-1.5 py-0.5 rounded font-mono font-semibold ${cls}`}>{score}</span>;
 }
 
 function StatusBadge({ status }: { status: Company["status"] }) {
@@ -58,7 +81,61 @@ function StatusBadge({ status }: { status: Company["status"] }) {
   return <span className="text-xs font-medium text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">대기</span>;
 }
 
-/* ─── 메인 컴포넌트 ─────────────────────────────────── */
+/* ─── 인라인 편집 셀 ─── */
+function EditableCell({
+  value,
+  placeholder,
+  onSave,
+}: {
+  value: string;
+  placeholder: string;
+  onSave: (v: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => { setDraft(value); }, [value]);
+
+  const commit = () => {
+    setEditing(false);
+    if (draft.trim() !== value) onSave(draft.trim());
+  };
+
+  if (editing) {
+    return (
+      <input
+        ref={inputRef}
+        autoFocus
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => { if (e.key === "Enter") commit(); if (e.key === "Escape") { setDraft(value); setEditing(false); } }}
+        className="w-full text-xs border border-indigo-400 rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-indigo-400 font-mono"
+        placeholder={placeholder}
+      />
+    );
+  }
+
+  return (
+    <button
+      onClick={() => setEditing(true)}
+      className="group flex items-center gap-1 text-left w-full"
+      title="클릭하여 수정"
+    >
+      {value ? (
+        <span className="text-xs text-gray-700 font-mono truncate max-w-[140px]">{value}</span>
+      ) : (
+        <span className="text-xs text-gray-300 italic">{placeholder}</span>
+      )}
+      <svg className="w-3 h-3 text-gray-300 group-hover:text-indigo-400 flex-shrink-0 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+      </svg>
+    </button>
+  );
+}
+
+/* ─── 메인 ──────────────────────────────────────────── */
 export default function ExhibitionDetailPage() {
   const params = useParams();
   const id = params.id as string;
@@ -68,28 +145,41 @@ export default function ExhibitionDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // 수집 상태
+  // 수집 입력
   const [crawlUrl, setCrawlUrl] = useState("");
   const [totalPages, setTotalPages] = useState("");
+  const [useAI, setUseAI] = useState(false);
   const [crawling, setCrawling] = useState(false);
+  const [crawlProgress, setCrawlProgress] = useState<{ current: number; total: number; found: number } | null>(null);
   const [crawlError, setCrawlError] = useState<string | null>(null);
   const [crawlMsg, setCrawlMsg] = useState<string | null>(null);
+  const crawlAbortRef = useRef(false);
 
-  // 선택 상태
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-
-  // 기업정보 수집 상태
+  // 기업정보 수집
   const [enrichProgress, setEnrichProgress] = useState<{
-    current: number;
-    total: number;
-    name: string;
+    current: number; total: number; name: string; ids: string[];
   } | null>(null);
+  const enrichPausedRef = useRef(false);
+  const enrichStoppedRef = useRef(false);
+  const [enrichPaused, setEnrichPaused] = useState(false);
+  const [resetting, setResetting] = useState(false);
 
-  // 상태 업데이트 중인 ID
+  // 선택
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
   const [updatingIds, setUpdatingIds] = useState<Set<string>>(new Set());
+
+  // 정렬
+  const [sortCol, setSortCol] = useState<SortCol>("score");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
+
+  // 확인 다이얼로그
+  const [confirmReset, setConfirmReset] = useState(false);
+  const [confirmDeleteSelected, setConfirmDeleteSelected] = useState(false);
 
   const urlInputRef = useRef<HTMLInputElement>(null);
 
+  /* ─── 데이터 로드 ─── */
   const loadData = useCallback(async () => {
     try {
       const res = await fetch(`/api/exhibitions/${id}`);
@@ -106,107 +196,203 @@ export default function ExhibitionDetailPage() {
 
   useEffect(() => { loadData(); }, [loadData]);
 
-  /* ─── 크롤링 ─── */
-  const handleCrawl = async (useAI: boolean) => {
+  /* ─── 크롤링 (순차 / 중단 가능) ─── */
+  const handleCrawl = async () => {
     const url = crawlUrl.trim();
     if (!url) { setCrawlError("URL을 입력해주세요."); urlInputRef.current?.focus(); return; }
     if (!/^https?:\/\/.+/.test(url)) { setCrawlError("http:// 또는 https://로 시작하는 URL을 입력하세요."); return; }
 
-    const parsedPages = totalPages.trim() ? parseInt(totalPages, 10) : undefined;
-    if (parsedPages !== undefined && (isNaN(parsedPages) || parsedPages < 1)) {
-      setCrawlError("페이지 수는 1 이상의 숫자를 입력하세요."); return;
-    }
+    const pages = totalPages.trim() ? Math.min(parseInt(totalPages, 10), 50) : 1;
+    if (isNaN(pages) || pages < 1) { setCrawlError("페이지 수는 1 이상이어야 합니다."); return; }
+
+    const urls = generatePageUrls(url, pages);
 
     setCrawling(true);
     setCrawlError(null);
     setCrawlMsg(null);
+    crawlAbortRef.current = false;
+    let totalFound = 0;
 
-    try {
-      const res = await fetch("/api/crawl", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url, useAI, totalPages: parsedPages, exhibitionId: id }),
-      });
-      const d = await res.json();
-      if (!res.ok) { setCrawlError(d.error ?? "수집 실패"); return; }
-      setCrawlMsg(`${d.count}개 기업 수집 완료 (${d.pages_fetched}페이지)`);
-      await loadData();
-    } catch {
-      setCrawlError("네트워크 오류가 발생했습니다.");
-    } finally {
-      setCrawling(false);
-    }
-  };
+    for (let i = 0; i < urls.length; i++) {
+      if (crawlAbortRef.current) break;
 
-  /* ─── 전체 선택 ─── */
-  const visibleIds = companies.filter((c) => c.status !== "excluded").map((c) => c.id);
-  const isAllSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.has(id));
-  const isPartialSelected = visibleIds.some((id) => selectedIds.has(id)) && !isAllSelected;
+      setCrawlProgress({ current: i + 1, total: urls.length, found: totalFound });
 
-  const toggleSelectAll = () => {
-    if (isAllSelected) {
-      setSelectedIds(new Set());
-    } else {
-      setSelectedIds(new Set(visibleIds));
-    }
-  };
-
-  const toggleSelect = (companyId: string) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(companyId)) next.delete(companyId);
-      else next.add(companyId);
-      return next;
-    });
-  };
-
-  /* ─── 상태 변경 ─── */
-  const updateStatus = async (companyId: string, status: Company["status"]) => {
-    setUpdatingIds((p) => new Set(p).add(companyId));
-    try {
-      await fetch(`/api/candidates/${companyId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status }),
-      });
-      setCompanies((prev) => prev.map((c) => c.id === companyId ? { ...c, status } : c));
-    } finally {
-      setUpdatingIds((p) => { const n = new Set(p); n.delete(companyId); return n; });
-    }
-  };
-
-  /* ─── 기업정보 수집 ─── */
-  const handleEnrich = async () => {
-    const ids = [...selectedIds].filter((sid) => companies.find((c) => c.id === sid));
-    if (ids.length === 0) return;
-
-    setEnrichProgress({ current: 0, total: ids.length, name: "" });
-
-    for (let i = 0; i < ids.length; i++) {
-      const company = companies.find((c) => c.id === ids[i]);
-      setEnrichProgress({
-        current: i + 1,
-        total: ids.length,
-        name: company?.normalized_name || company?.raw_name || "",
-      });
       try {
-        await fetch(`/api/companies/${ids[i]}/enrich`, { method: "POST" });
+        const res = await fetch("/api/crawl", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            url: urls[i],
+            useAI,
+            singlePage: true,
+            exhibitionId: id,
+          }),
+        });
+        const d = await res.json();
+        if (res.ok) {
+          totalFound += d.count ?? 0;
+          setCrawlProgress({ current: i + 1, total: urls.length, found: totalFound });
+          // 페이지마다 목록 즉시 반영
+          await loadData();
+        }
       } catch {
-        // 실패해도 다음 진행
+        // 네트워크 오류 시 이 페이지만 건너뜀
       }
     }
 
-    setEnrichProgress(null);
+    setCrawling(false);
+    setCrawlProgress(null);
+    if (!crawlAbortRef.current) {
+      setCrawlMsg(`수집 완료 — 총 ${totalFound}개 기업`);
+    } else {
+      setCrawlMsg(`수집 중단 — ${totalFound}개 기업까지 저장됨`);
+    }
+  };
+
+  const stopCrawl = () => { crawlAbortRef.current = true; };
+
+  /* ─── 선택 ─── */
+  const activeCompanies = companies.filter((c) => c.status !== "excluded");
+  const isAllSelected = activeCompanies.length > 0 && activeCompanies.every((c) => selectedIds.has(c.id));
+  const isPartial = activeCompanies.some((c) => selectedIds.has(c.id)) && !isAllSelected;
+
+  const toggleAll = () => {
+    if (isAllSelected) setSelectedIds(new Set());
+    else setSelectedIds(new Set(activeCompanies.map((c) => c.id)));
+  };
+
+  const toggleOne = (cid: string) =>
+    setSelectedIds((p) => { const n = new Set(p); n.has(cid) ? n.delete(cid) : n.add(cid); return n; });
+
+  /* ─── 삭제 ─── */
+  const deleteSelected = async () => {
+    const ids = [...selectedIds];
+    for (const cid of ids) {
+      setDeletingIds((p) => new Set(p).add(cid));
+      await fetch(`/api/candidates/${cid}`, { method: "DELETE" });
+      setCompanies((prev) => prev.filter((c) => c.id !== cid));
+      setDeletingIds((p) => { const n = new Set(p); n.delete(cid); return n; });
+    }
     setSelectedIds(new Set());
+    setConfirmDeleteSelected(false);
+  };
+
+  /* ─── 상태 변경 ─── */
+  const updateStatus = async (cid: string, status: Company["status"]) => {
+    setUpdatingIds((p) => new Set(p).add(cid));
+    await fetch(`/api/candidates/${cid}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status }),
+    });
+    setCompanies((prev) => prev.map((c) => c.id === cid ? { ...c, status } : c));
+    setUpdatingIds((p) => { const n = new Set(p); n.delete(cid); return n; });
+  };
+
+  /* ─── 기업정보 수집 ─── */
+  const startEnrich = async (ids?: string[]) => {
+    const targetIds = ids ?? [...selectedIds];
+    if (targetIds.length === 0) return;
+    enrichPausedRef.current = false;
+    enrichStoppedRef.current = false;
+    setEnrichPaused(false);
+    setEnrichProgress({ current: 0, total: targetIds.length, name: "", ids: targetIds });
+    await runEnrichLoop(targetIds, 0);
+  };
+
+  const runEnrichLoop = async (ids: string[], startIdx: number) => {
+    for (let i = startIdx; i < ids.length; i++) {
+      if (enrichStoppedRef.current) break;
+
+      while (enrichPausedRef.current) {
+        await new Promise((r) => setTimeout(r, 200));
+      }
+
+      const company = companies.find((c) => c.id === ids[i]);
+      setEnrichProgress({ current: i + 1, total: ids.length, name: company?.normalized_name || company?.raw_name || "", ids });
+
+      try {
+        await fetch(`/api/companies/${ids[i]}/enrich`, { method: "POST" });
+        await loadData();
+      } catch {
+        // 오류 시 다음 기업으로
+      }
+    }
+    if (!enrichPausedRef.current) {
+      setEnrichProgress(null);
+      setSelectedIds(new Set());
+    }
+  };
+
+  const pauseEnrich = () => {
+    enrichPausedRef.current = true;
+    setEnrichPaused(true);
+  };
+
+  const resumeEnrich = () => {
+    if (!enrichProgress) return;
+    enrichPausedRef.current = false;
+    setEnrichPaused(false);
+    const { ids, current } = enrichProgress;
+    runEnrichLoop(ids, current);
+  };
+
+  const stopEnrich = () => {
+    enrichStoppedRef.current = true;
+    enrichPausedRef.current = false;
+    setEnrichPaused(false);
+    setEnrichProgress(null);
+  };
+
+  /* ─── 초기화 ─── */
+  const handleReset = async () => {
+    setResetting(true);
+    await fetch(`/api/exhibitions/${id}/enrich-reset`, { method: "DELETE" });
+    setResetting(false);
+    setConfirmReset(false);
+    stopEnrich();
     await loadData();
   };
 
-  /* ─── 통계 ─── */
+  /* ─── 수기 연락처 저장 ─── */
+  const saveContact = async (cid: string, field: "homepage" | "email" | "phone", value: string) => {
+    await fetch(`/api/companies/${cid}/contact`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ field, value }),
+    });
+    await loadData();
+  };
+
+  /* ─── 정렬 ─── */
+  const handleSort = (col: SortCol) => {
+    if (sortCol === col) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    else { setSortCol(col); setSortDir("asc"); }
+  };
+
+  const sortedCompanies = [...companies].sort((a, b) => {
+    let va: string | number = "";
+    let vb: string | number = "";
+    switch (sortCol) {
+      case "name": va = a.normalized_name || a.raw_name; vb = b.normalized_name || b.raw_name; break;
+      case "score": va = a.score; vb = b.score; break;
+      case "status": va = a.status; vb = b.status; break;
+      case "homepage": va = a.homepage ?? ""; vb = b.homepage ?? ""; break;
+      case "email": va = a.emails[0] ?? ""; vb = b.emails[0] ?? ""; break;
+      case "phone": va = a.phones[0] ?? ""; vb = b.phones[0] ?? ""; break;
+    }
+    if (va < vb) return sortDir === "asc" ? -1 : 1;
+    if (va > vb) return sortDir === "asc" ? 1 : -1;
+    return 0;
+  });
+
   const confirmed = companies.filter((c) => c.status === "confirmed").length;
   const pending = companies.filter((c) => c.status === "candidate").length;
   const excluded = companies.filter((c) => c.status === "excluded").length;
   const enrichedCount = companies.filter((c) => c.enriched).length;
 
+  /* ─── 렌더 ─── */
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -231,9 +417,9 @@ export default function ExhibitionDetailPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Top nav */}
-      <header className="bg-white border-b border-gray-200 sticky top-0 z-10">
-        <div className="max-w-6xl mx-auto px-6 h-14 flex items-center gap-3">
+      {/* 상단 네비 */}
+      <header className="bg-white border-b border-gray-200 sticky top-0 z-20">
+        <div className="max-w-7xl mx-auto px-6 h-14 flex items-center gap-3">
           <Link href="/exhibitions" className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-indigo-600 transition-colors">
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
@@ -241,52 +427,37 @@ export default function ExhibitionDetailPage() {
             목록
           </Link>
           <span className="text-gray-300">/</span>
-          <span className="text-sm font-medium text-gray-700 truncate max-w-xs">{exhibition.name}</span>
+          <span className="text-sm font-medium text-gray-700 truncate">{exhibition.name}</span>
         </div>
       </header>
 
-      <main className="max-w-6xl mx-auto px-6 py-6 space-y-5">
-        {/* 박람회 헤더 카드 */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-          <h1 className="text-2xl font-bold text-gray-900 mb-3">{exhibition.name}</h1>
-          <div className="flex flex-wrap gap-4 text-sm text-gray-500">
-            {exhibition.date && (
-              <div className="flex items-center gap-1.5">
-                <CalendarIcon />
-                {formatDate(exhibition.date)}
-              </div>
-            )}
-            {exhibition.location && (
-              <div className="flex items-center gap-1.5">
-                <LocationIcon />
-                {exhibition.location}
-              </div>
-            )}
-            {exhibition.manager && (
-              <div className="flex items-center gap-1.5">
-                <PersonIcon />
-                담당자 {exhibition.manager}
-              </div>
-            )}
+      <main className="max-w-7xl mx-auto px-6 py-6 space-y-4">
+
+        {/* 박람회 정보 */}
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm px-6 py-5">
+          <h1 className="text-xl font-bold text-gray-900">{exhibition.name}</h1>
+          <div className="flex flex-wrap gap-4 mt-2 text-sm text-gray-500">
+            {exhibition.date && <span>📅 {formatDate(exhibition.date)}</span>}
+            {exhibition.location && <span>📍 {exhibition.location}</span>}
+            {exhibition.manager && <span>👤 {exhibition.manager}</span>}
           </div>
         </div>
 
-        {/* URL 수집 카드 */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-          <div className="mb-4">
-            <h2 className="text-base font-semibold text-gray-900">기업명 수집</h2>
-            <p className="text-sm text-gray-500 mt-0.5">박람회 참가기업 목록 URL을 입력하고 수집을 시작하세요.</p>
-          </div>
-          <div className="flex flex-col sm:flex-row gap-3">
+        {/* 기업명 수집 */}
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm px-6 py-5">
+          <h2 className="text-sm font-semibold text-gray-700 mb-3">기업명 수집</h2>
+
+          {/* 한 줄 입력 */}
+          <div className="flex items-center gap-2 flex-wrap">
             <input
               ref={urlInputRef}
               type="text"
               value={crawlUrl}
               onChange={(e) => setCrawlUrl(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter" && !crawling) handleCrawl(false); }}
+              onKeyDown={(e) => { if (e.key === "Enter" && !crawling) handleCrawl(); }}
               placeholder="https://expo-example.co.kr/exhibitors"
               disabled={crawling}
-              className="flex-1 border border-gray-300 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:bg-gray-50 transition-shadow"
+              className="flex-1 min-w-0 border border-gray-300 rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:bg-gray-50"
             />
             <input
               type="number"
@@ -296,43 +467,69 @@ export default function ExhibitionDetailPage() {
               onChange={(e) => setTotalPages(e.target.value)}
               placeholder="페이지 수"
               disabled={crawling}
-              className="w-28 border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:bg-gray-50 transition-shadow"
+              className="w-24 border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:bg-gray-50"
             />
-          </div>
-          <div className="flex gap-2.5 mt-3">
-            <button
-              onClick={() => handleCrawl(false)}
-              disabled={crawling || !crawlUrl.trim()}
-              className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm"
-            >
-              {crawling ? <SpinnerIcon /> : (
+            <label className="flex items-center gap-1.5 text-sm text-gray-600 cursor-pointer select-none whitespace-nowrap">
+              <input
+                type="checkbox"
+                checked={useAI}
+                onChange={(e) => setUseAI(e.target.checked)}
+                disabled={crawling}
+                className="w-4 h-4 accent-violet-600"
+              />
+              <span className={useAI ? "text-violet-700 font-medium" : ""}>AI 수집</span>
+            </label>
+            {!crawling ? (
+              <button
+                onClick={handleCrawl}
+                disabled={!crawlUrl.trim()}
+                className="flex items-center gap-1.5 bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 transition-colors shadow-sm whitespace-nowrap"
+              >
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                 </svg>
-              )}
-              {crawling ? "수집 중..." : "기업명 수집"}
-            </button>
-            <button
-              onClick={() => handleCrawl(true)}
-              disabled={crawling || !crawlUrl.trim()}
-              className="flex items-center gap-2 bg-violet-600 text-white px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-violet-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm"
-            >
-              {crawling ? <SpinnerIcon /> : (
+                기업명 수집
+              </button>
+            ) : (
+              <button
+                onClick={stopCrawl}
+                className="flex items-center gap-1.5 bg-red-500 text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-red-600 transition-colors shadow-sm whitespace-nowrap"
+              >
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
-              )}
-              AI 기반 수집
-            </button>
+                수집 중단
+              </button>
+            )}
           </div>
-          {crawlError && (
-            <p className="mt-3 text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
-              {crawlError}
-            </p>
+
+          {/* 수집 진행 바 */}
+          {crawlProgress && (
+            <div className="mt-3 space-y-1.5">
+              <div className="flex items-center justify-between text-xs text-gray-500">
+                <div className="flex items-center gap-2">
+                  <SpinnerIcon className="w-3.5 h-3.5 text-indigo-500" />
+                  <span>
+                    페이지 <strong>{crawlProgress.current}</strong> / {crawlProgress.total} 수집 중
+                  </span>
+                </div>
+                <span className="text-indigo-600 font-medium">{crawlProgress.found}개 발견</span>
+              </div>
+              <div className="w-full bg-gray-100 rounded-full h-1.5">
+                <div
+                  className="bg-indigo-500 h-1.5 rounded-full transition-all duration-300"
+                  style={{ width: `${(crawlProgress.current / crawlProgress.total) * 100}%` }}
+                />
+              </div>
+            </div>
           )}
-          {crawlMsg && !crawlError && (
-            <p className="mt-3 text-sm text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2 flex items-center gap-1.5">
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+
+          {crawlError && (
+            <p className="mt-2.5 text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{crawlError}</p>
+          )}
+          {crawlMsg && !crawlError && !crawlProgress && (
+            <p className="mt-2.5 text-sm text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2 flex items-center gap-1.5">
+              <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
               </svg>
               {crawlMsg}
@@ -343,70 +540,107 @@ export default function ExhibitionDetailPage() {
         {/* 기업 목록 */}
         {companies.length > 0 && (
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm">
-            {/* 헤더 */}
-            <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between flex-wrap gap-3">
-              <div>
-                <h2 className="text-base font-semibold text-gray-900">
-                  기업 목록
-                  <span className="ml-2 text-sm font-normal text-gray-400">{companies.length}개</span>
-                </h2>
-                <div className="flex items-center gap-3 mt-1 text-xs text-gray-500">
-                  <span className="flex items-center gap-1">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" />
-                    확정 {confirmed}
-                  </span>
-                  <span className="flex items-center gap-1">
-                    <span className="w-1.5 h-1.5 rounded-full bg-gray-300 inline-block" />
-                    대기 {pending}
-                  </span>
-                  <span className="flex items-center gap-1">
-                    <span className="w-1.5 h-1.5 rounded-full bg-red-400 inline-block" />
-                    제외 {excluded}
-                  </span>
-                  {enrichedCount > 0 && (
+
+            {/* 테이블 헤더 */}
+            <div className="px-6 py-4 border-b border-gray-100">
+              <div className="flex items-center justify-between flex-wrap gap-3">
+                <div>
+                  <h2 className="text-sm font-semibold text-gray-900">
+                    기업 목록 <span className="text-gray-400 font-normal">{companies.length}개</span>
+                  </h2>
+                  <div className="flex items-center gap-3 mt-1 text-xs text-gray-500">
+                    <span><span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block mr-1" />확정 {confirmed}</span>
+                    <span><span className="w-1.5 h-1.5 rounded-full bg-gray-300 inline-block mr-1" />대기 {pending}</span>
+                    <span><span className="w-1.5 h-1.5 rounded-full bg-red-300 inline-block mr-1" />제외 {excluded}</span>
+                    {enrichedCount > 0 && <span className="text-indigo-600 font-medium">· 연락처 {enrichedCount}개</span>}
+                  </div>
+                </div>
+
+                {/* 액션 버튼 */}
+                <div className="flex items-center gap-2">
+                  {selectedIds.size > 0 && !enrichProgress && (
                     <>
-                      <span className="text-gray-300">·</span>
-                      <span className="text-indigo-600 font-medium">연락처 {enrichedCount}개 수집됨</span>
+                      <button
+                        onClick={() => setConfirmDeleteSelected(true)}
+                        className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 font-medium transition-colors"
+                      >
+                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                        선택 삭제 ({selectedIds.size})
+                      </button>
+                      <button
+                        onClick={() => startEnrich()}
+                        className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 font-medium transition-colors shadow-sm"
+                      >
+                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                        </svg>
+                        기업정보 수집 ({selectedIds.size})
+                      </button>
                     </>
                   )}
-                </div>
-              </div>
-
-              {/* 일괄 액션 */}
-              <div className="flex items-center gap-2">
-                {selectedIds.size > 0 && (
                   <button
-                    onClick={handleEnrich}
-                    disabled={!!enrichProgress}
-                    className="flex items-center gap-1.5 bg-indigo-600 text-white px-3.5 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 transition-colors shadow-sm"
+                    onClick={() => setConfirmReset(true)}
+                    disabled={resetting}
+                    className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 transition-colors"
                   >
-                    {enrichProgress ? <SpinnerIcon /> : (
-                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                      </svg>
-                    )}
-                    기업정보 수집 ({selectedIds.size}개)
+                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                    연락처 초기화
                   </button>
-                )}
-              </div>
-            </div>
-
-            {/* 진행상황 배너 */}
-            {enrichProgress && (
-              <div className="px-6 py-3 bg-indigo-50 border-b border-indigo-100 flex items-center gap-3">
-                <SpinnerIcon className="w-4 h-4 text-indigo-500" />
-                <span className="text-sm text-indigo-700 font-medium">
-                  기업정보 수집 중: {enrichProgress.current}/{enrichProgress.total}
-                  {enrichProgress.name && ` — ${enrichProgress.name}`}
-                </span>
-                <div className="flex-1 bg-indigo-200 rounded-full h-1.5 ml-2">
-                  <div
-                    className="bg-indigo-600 h-1.5 rounded-full transition-all"
-                    style={{ width: `${(enrichProgress.current / enrichProgress.total) * 100}%` }}
-                  />
                 </div>
               </div>
-            )}
+
+              {/* 기업정보 수집 진행 */}
+              {enrichProgress && (
+                <div className="mt-3 bg-indigo-50 border border-indigo-100 rounded-xl px-4 py-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-sm text-indigo-700">
+                      {!enrichPaused && <SpinnerIcon className="w-4 h-4 text-indigo-500" />}
+                      {enrichPaused && <span className="w-4 h-4 flex items-center justify-center text-amber-500">⏸</span>}
+                      <span className="font-medium">
+                        {enrichPaused ? "일시정지됨" : "기업정보 수집 중"}
+                      </span>
+                      <span className="text-indigo-500">
+                        {enrichProgress.current}/{enrichProgress.total}
+                        {enrichProgress.name && ` — ${enrichProgress.name}`}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {!enrichPaused ? (
+                        <button
+                          onClick={pauseEnrich}
+                          className="text-xs px-2.5 py-1 rounded-lg bg-amber-50 text-amber-700 hover:bg-amber-100 font-medium transition-colors border border-amber-200"
+                        >
+                          일시정지
+                        </button>
+                      ) : (
+                        <button
+                          onClick={resumeEnrich}
+                          className="text-xs px-2.5 py-1 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 font-medium transition-colors"
+                        >
+                          계속하기
+                        </button>
+                      )}
+                      <button
+                        onClick={stopEnrich}
+                        className="text-xs px-2.5 py-1 rounded-lg bg-white text-gray-600 hover:bg-gray-100 font-medium transition-colors border border-gray-200"
+                      >
+                        중단
+                      </button>
+                    </div>
+                  </div>
+                  <div className="w-full bg-indigo-100 rounded-full h-1.5">
+                    <div
+                      className="bg-indigo-600 h-1.5 rounded-full transition-all duration-500"
+                      style={{ width: `${(enrichProgress.current / enrichProgress.total) * 100}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
 
             {/* 테이블 */}
             <div className="overflow-x-auto">
@@ -417,123 +651,116 @@ export default function ExhibitionDetailPage() {
                       <input
                         type="checkbox"
                         checked={isAllSelected}
-                        ref={(el) => { if (el) el.indeterminate = isPartialSelected; }}
-                        onChange={toggleSelectAll}
+                        ref={(el) => { if (el) el.indeterminate = isPartial; }}
+                        onChange={toggleAll}
                         className="w-4 h-4 accent-indigo-600 cursor-pointer"
                       />
                     </th>
-                    <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">기업명</th>
-                    <th className="px-3 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider w-14">점수</th>
-                    <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">홈페이지</th>
-                    <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">이메일</th>
-                    <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">전화번호</th>
-                    <th className="px-3 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider w-20">상태</th>
-                    <th className="px-3 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider w-32">액션</th>
+                    {(
+                      [
+                        { col: "name" as SortCol, label: "기업명" },
+                        { col: "score" as SortCol, label: "점수" },
+                        { col: "homepage" as SortCol, label: "홈페이지" },
+                        { col: "email" as SortCol, label: "이메일" },
+                        { col: "phone" as SortCol, label: "전화번호" },
+                        { col: "status" as SortCol, label: "상태" },
+                      ] as { col: SortCol; label: string }[]
+                    ).map(({ col, label }) => (
+                      <th
+                        key={col}
+                        onClick={() => handleSort(col)}
+                        className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider cursor-pointer hover:text-gray-700 select-none"
+                      >
+                        {label}
+                        <SortIcon col={col} active={sortCol === col} dir={sortDir} />
+                      </th>
+                    ))}
+                    <th className="px-3 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider w-28">액션</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
-                  {companies.map((c) => {
+                  {sortedCompanies.map((c) => {
                     const isUpdating = updatingIds.has(c.id);
+                    const isDeleting = deletingIds.has(c.id);
                     const isSelected = selectedIds.has(c.id);
-                    const rowBg =
-                      c.status === "excluded"
-                        ? "opacity-40 bg-gray-50"
-                        : isSelected
-                        ? "bg-indigo-50/60"
-                        : c.status === "confirmed"
-                        ? "bg-emerald-50/40"
-                        : "";
+                    const rowCls =
+                      isDeleting ? "opacity-30" :
+                      c.status === "excluded" ? "opacity-40 bg-gray-50" :
+                      isSelected ? "bg-indigo-50/50" :
+                      c.status === "confirmed" ? "bg-emerald-50/30" :
+                      "";
 
                     return (
-                      <tr key={c.id} className={`hover:bg-gray-50/80 transition-colors ${rowBg}`}>
+                      <tr key={c.id} className={`hover:bg-gray-50/70 transition-colors ${rowCls}`}>
                         {/* 체크박스 */}
-                        <td className="px-4 py-3 text-center">
+                        <td className="px-4 py-2.5 text-center">
                           <input
                             type="checkbox"
                             checked={isSelected}
-                            disabled={c.status === "excluded"}
-                            onChange={() => toggleSelect(c.id)}
+                            disabled={c.status === "excluded" || isDeleting}
+                            onChange={() => toggleOne(c.id)}
                             className="w-4 h-4 accent-indigo-600 cursor-pointer disabled:cursor-not-allowed"
                           />
                         </td>
 
                         {/* 기업명 */}
-                        <td className="px-3 py-3">
+                        <td className="px-3 py-2.5 min-w-[140px]">
                           <Link
                             href={`/companies/${c.id}`}
-                            className="font-medium text-gray-900 hover:text-indigo-700 transition-colors"
+                            className="font-medium text-gray-900 hover:text-indigo-700 transition-colors block"
                           >
                             {c.normalized_name || c.raw_name}
                           </Link>
                           {c.normalized_name && c.normalized_name !== c.raw_name && (
-                            <span className="ml-1.5 text-xs text-gray-400">{c.raw_name}</span>
+                            <span className="text-xs text-gray-400">{c.raw_name}</span>
                           )}
                         </td>
 
                         {/* 점수 */}
-                        <td className="px-3 py-3 text-center">
+                        <td className="px-3 py-2.5 text-center">
                           <ScoreBadge score={c.score} />
                         </td>
 
-                        {/* 홈페이지 */}
-                        <td className="px-3 py-3 max-w-[180px]">
-                          {c.homepage ? (
-                            <a
-                              href={c.homepage}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-xs text-indigo-600 hover:underline truncate block"
-                              title={c.homepage}
-                            >
-                              {new URL(c.homepage).hostname.replace(/^www\./, "")}
-                            </a>
-                          ) : (
-                            <span className="text-xs text-gray-300">—</span>
-                          )}
+                        {/* 홈페이지 (수기 입력 가능) */}
+                        <td className="px-3 py-2.5 min-w-[160px] max-w-[200px]">
+                          <EditableCell
+                            value={c.homepage ?? ""}
+                            placeholder="홈페이지 입력"
+                            onSave={(v) => saveContact(c.id, "homepage", v)}
+                          />
                         </td>
 
-                        {/* 이메일 */}
-                        <td className="px-3 py-3 max-w-[180px]">
-                          {c.emails.length > 0 ? (
-                            <div className="flex flex-col gap-0.5">
-                              {c.emails.slice(0, 2).map((e, i) => (
-                                <span key={i} className="text-xs text-gray-700 truncate font-mono" title={e}>{e}</span>
-                              ))}
-                              {c.emails.length > 2 && (
-                                <span className="text-xs text-gray-400">+{c.emails.length - 2}개</span>
-                              )}
-                            </div>
-                          ) : (
-                            <span className="text-xs text-gray-300">—</span>
-                          )}
+                        {/* 이메일 (수기 입력 가능) */}
+                        <td className="px-3 py-2.5 min-w-[160px] max-w-[200px]">
+                          <EditableCell
+                            value={c.emails[0] ?? ""}
+                            placeholder="이메일 입력"
+                            onSave={(v) => saveContact(c.id, "email", v)}
+                          />
                         </td>
 
-                        {/* 전화 */}
-                        <td className="px-3 py-3">
-                          {c.phones.length > 0 ? (
-                            <div className="flex flex-col gap-0.5">
-                              {c.phones.slice(0, 2).map((p, i) => (
-                                <span key={i} className="text-xs text-gray-700 font-mono">{p}</span>
-                              ))}
-                            </div>
-                          ) : (
-                            <span className="text-xs text-gray-300">—</span>
-                          )}
+                        {/* 전화 (수기 입력 가능) */}
+                        <td className="px-3 py-2.5 min-w-[120px]">
+                          <EditableCell
+                            value={c.phones[0] ?? ""}
+                            placeholder="전화번호 입력"
+                            onSave={(v) => saveContact(c.id, "phone", v)}
+                          />
                         </td>
 
                         {/* 상태 */}
-                        <td className="px-3 py-3 text-center">
+                        <td className="px-3 py-2.5">
                           <StatusBadge status={c.status} />
                         </td>
 
                         {/* 액션 */}
-                        <td className="px-3 py-3 text-center">
-                          <div className="flex items-center justify-center gap-1.5">
+                        <td className="px-3 py-2.5">
+                          <div className="flex items-center gap-1">
                             {c.status !== "confirmed" && (
                               <button
                                 disabled={isUpdating}
                                 onClick={() => updateStatus(c.id, "confirmed")}
-                                className="text-xs px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 font-medium transition-colors disabled:opacity-40"
+                                className="text-xs px-2 py-1 rounded bg-emerald-50 text-emerald-700 hover:bg-emerald-100 font-medium transition-colors disabled:opacity-40"
                               >
                                 확정
                               </button>
@@ -542,7 +769,7 @@ export default function ExhibitionDetailPage() {
                               <button
                                 disabled={isUpdating}
                                 onClick={() => updateStatus(c.id, "excluded")}
-                                className="text-xs px-2.5 py-1 rounded-lg bg-gray-100 text-gray-500 hover:bg-red-50 hover:text-red-600 font-medium transition-colors disabled:opacity-40"
+                                className="text-xs px-2 py-1 rounded bg-gray-100 text-gray-500 hover:bg-red-50 hover:text-red-600 font-medium transition-colors disabled:opacity-40"
                               >
                                 제외
                               </button>
@@ -550,7 +777,7 @@ export default function ExhibitionDetailPage() {
                               <button
                                 disabled={isUpdating}
                                 onClick={() => updateStatus(c.id, "candidate")}
-                                className="text-xs px-2.5 py-1 rounded-lg bg-gray-100 text-gray-500 hover:bg-gray-200 font-medium transition-colors disabled:opacity-40"
+                                className="text-xs px-2 py-1 rounded bg-gray-100 text-gray-500 hover:bg-gray-200 font-medium transition-colors disabled:opacity-40"
                               >
                                 복원
                               </button>
@@ -564,20 +791,15 @@ export default function ExhibitionDetailPage() {
               </table>
             </div>
 
-            {/* 테이블 하단 — 선택 현황 */}
+            {/* 하단 전체선택 */}
             <div className="px-6 py-3 border-t border-gray-100 flex items-center justify-between text-xs text-gray-400">
-              <button
-                onClick={toggleSelectAll}
-                className="text-xs text-gray-500 hover:text-indigo-600 font-medium transition-colors"
-              >
+              <button onClick={toggleAll} className="text-xs text-gray-500 hover:text-indigo-600 font-medium transition-colors">
                 {isAllSelected ? "전체 선택 해제" : "전체 선택"}
               </button>
               <span>
-                {selectedIds.size > 0 ? (
-                  <span className="text-indigo-600 font-medium">{selectedIds.size}개 선택됨</span>
-                ) : (
-                  "기업을 선택하면 일괄 작업이 가능합니다"
-                )}
+                {selectedIds.size > 0
+                  ? <span className="text-indigo-600 font-medium">{selectedIds.size}개 선택됨</span>
+                  : "기업을 선택하여 일괄 작업"}
               </span>
             </div>
           </div>
@@ -586,16 +808,80 @@ export default function ExhibitionDetailPage() {
         {/* 빈 상태 */}
         {companies.length === 0 && !crawling && (
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm py-16 flex flex-col items-center text-center">
-            <div className="w-16 h-16 bg-gray-50 rounded-2xl flex items-center justify-center mb-4">
-              <svg className="w-8 h-8 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <div className="w-14 h-14 bg-gray-50 rounded-2xl flex items-center justify-center mb-3">
+              <svg className="w-7 h-7 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.3} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
               </svg>
             </div>
-            <p className="text-sm font-medium text-gray-700 mb-1">아직 수집된 기업이 없습니다</p>
-            <p className="text-xs text-gray-400">위의 URL 입력칸에 박람회 참가기업 목록 URL을 입력하고 수집을 시작하세요.</p>
+            <p className="text-sm font-medium text-gray-600 mb-1">수집된 기업이 없습니다</p>
+            <p className="text-xs text-gray-400">URL을 입력하고 기업명 수집을 시작하세요.</p>
           </div>
         )}
       </main>
+
+      {/* 삭제 확인 다이얼로그 */}
+      {confirmDeleteSelected && (
+        <Dialog
+          title={`선택한 ${selectedIds.size}개 기업을 삭제할까요?`}
+          description="삭제된 기업과 수집된 연락처 데이터가 모두 제거됩니다. 이 작업은 되돌릴 수 없습니다."
+          confirmLabel="삭제"
+          confirmClass="bg-red-500 hover:bg-red-600"
+          onConfirm={deleteSelected}
+          onCancel={() => setConfirmDeleteSelected(false)}
+        />
+      )}
+
+      {/* 초기화 확인 다이얼로그 */}
+      {confirmReset && (
+        <Dialog
+          title="연락처 정보를 초기화할까요?"
+          description="이 박람회의 모든 홈페이지/이메일/전화번호 수집 결과가 삭제됩니다. 기업 목록은 유지됩니다."
+          confirmLabel={resetting ? "초기화 중..." : "초기화"}
+          confirmClass="bg-red-500 hover:bg-red-600"
+          onConfirm={handleReset}
+          onCancel={() => setConfirmReset(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+/* ─── 확인 다이얼로그 컴포넌트 ─── */
+function Dialog({
+  title,
+  description,
+  confirmLabel,
+  confirmClass,
+  onConfirm,
+  onCancel,
+}: {
+  title: string;
+  description: string;
+  confirmLabel: string;
+  confirmClass: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6">
+        <h3 className="text-base font-bold text-gray-900 mb-2">{title}</h3>
+        <p className="text-sm text-gray-500 mb-5">{description}</p>
+        <div className="flex gap-3">
+          <button
+            onClick={onCancel}
+            className="flex-1 border border-gray-300 text-gray-700 px-4 py-2 rounded-xl text-sm font-medium hover:bg-gray-50 transition-colors"
+          >
+            취소
+          </button>
+          <button
+            onClick={onConfirm}
+            className={`flex-1 text-white px-4 py-2 rounded-xl text-sm font-medium transition-colors ${confirmClass}`}
+          >
+            {confirmLabel}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
