@@ -161,15 +161,17 @@ function isThinContent(html: string): boolean {
   return text.length < 200;
 }
 
-// 메인 페이지: fetch 먼저, 콘텐츠 부족 시 Firecrawl fallback
-async function processMainPage(url: string, firecrawlApiKey: string): Promise<PageResult> {
+// 메인 페이지: force=true면 Firecrawl 직접, 아니면 fetch 먼저 후 필요 시 Firecrawl
+async function processMainPage(url: string, firecrawlApiKey: string, force = false): Promise<PageResult> {
   let html: string | null = null;
   const methods: string[] = [];
 
-  // fetch 먼저 시도
-  html = await fetchBasic(url);
+  if (!force) {
+    // 일반 수집: fetch 먼저
+    html = await fetchBasic(url);
+  }
 
-  // 콘텐츠가 너무 적으면 (JS 렌더링 페이지) Firecrawl 시도
+  // force이거나 fetch 실패/콘텐츠 부족 시 Firecrawl 사용
   if (!html || isThinContent(html)) {
     const fc = await scrapeWithFirecrawl(url, firecrawlApiKey);
     if (fc?.html) {
@@ -197,14 +199,15 @@ async function processSubPage(url: string): Promise<PageResult> {
 
 export async function extractCompanyContact(
   homepageUrl: string,
-  firecrawlApiKey: string
+  firecrawlApiKey: string,
+  force = false
 ): Promise<ContactResult & { firstPageHtml: string | null }> {
   const pages = buildContactPages(homepageUrl);
   const [mainUrl, ...subUrls] = pages;
 
-  // 메인 페이지(Firecrawl)와 서브 페이지(fetch)를 동시에 병렬 실행
+  // 메인 페이지와 서브 페이지 병렬 실행
   const [mainResult, ...subResults] = await Promise.all([
-    processMainPage(mainUrl, firecrawlApiKey),
+    processMainPage(mainUrl, firecrawlApiKey, force),
     ...subUrls.map((url) => processSubPage(url)),
   ]);
 

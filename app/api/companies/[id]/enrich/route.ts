@@ -9,10 +9,12 @@ import { extractContactWithAI } from "@/lib/enrichment/ai-contact-extractor";
 export const maxDuration = 120;
 
 export async function POST(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
+  const body = await req.json().catch(() => ({}));
+  const force = body?.force === true;
 
   if (!id || !/^[0-9a-f-]{36}$/i.test(id)) {
     return NextResponse.json({ error: "유효하지 않은 id입니다." }, { status: 400 });
@@ -57,13 +59,13 @@ export async function POST(
       return NextResponse.json({ success: false, message: "검색 결과 없음", companyName });
     }
 
-    // [3] 후보 검증 — 상위 2개만 Firecrawl 검증, 나머지는 점수 0으로 처리
-    console.log(`[Enrich] 후보 검증 중 (상위 2개)...`);
+    // [3] 후보 검증 — 상위 2개 검증 (force 시 Firecrawl 직접 사용)
+    console.log(`[Enrich] 후보 검증 중 (상위 2개, force=${force})...`);
     const topCandidates = candidates.slice(0, 2);
     const restCandidates = candidates.slice(2);
     const topValidations = await Promise.all(
       topCandidates.map((c) =>
-        validateOfficialWebsite(companyName, c.url, env.FIRECRAWL_API_KEY).catch((err) => {
+        validateOfficialWebsite(companyName, c.url, env.FIRECRAWL_API_KEY, force).catch((err) => {
           console.error(`[Enrich] 검증 오류 ${c.url}:`, err);
           return null;
         })
@@ -108,7 +110,7 @@ export async function POST(
 
     // [5] 연락처 추출 (상위 후보 기준)
     const topSource = sourceRecords[0];
-    const contactResult = await extractCompanyContact(topSource.source_url, env.FIRECRAWL_API_KEY);
+    const contactResult = await extractCompanyContact(topSource.source_url, env.FIRECRAWL_API_KEY, force);
     console.log(
       `[Enrich] 연락처: 이메일 ${contactResult.emails.length}개, 전화 ${contactResult.telephones.length}개`
     );

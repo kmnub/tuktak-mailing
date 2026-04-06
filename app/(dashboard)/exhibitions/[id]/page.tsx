@@ -176,7 +176,7 @@ export default function ExhibitionDetailPage() {
   // 기업정보 수집
   const [enrichProgress, setEnrichProgress] = useState<{
     current: number; total: number; name: string; ids: string[];
-    found: number; failed: number;
+    found: number; failed: number; force: boolean;
   } | null>(null);
   const enrichPausedRef = useRef(false);
   const enrichStoppedRef = useRef(false);
@@ -331,17 +331,17 @@ export default function ExhibitionDetailPage() {
   };
 
   /* ─── 기업정보 수집 ─── */
-  const startEnrich = async (ids?: string[]) => {
+  const startEnrich = async (ids?: string[], force = false) => {
     const targetIds = ids ?? [...selectedIds];
     if (targetIds.length === 0) return;
     enrichPausedRef.current = false;
     enrichStoppedRef.current = false;
     setEnrichPaused(false);
-    setEnrichProgress({ current: 0, total: targetIds.length, name: "", ids: targetIds, found: 0, failed: 0 });
-    await runEnrichLoop(targetIds, 0, 0, 0);
+    setEnrichProgress({ current: 0, total: targetIds.length, name: "", ids: targetIds, found: 0, failed: 0, force });
+    await runEnrichLoop(targetIds, 0, 0, 0, force);
   };
 
-  const runEnrichLoop = async (ids: string[], startIdx: number, initFound: number, initFailed: number) => {
+  const runEnrichLoop = async (ids: string[], startIdx: number, initFound: number, initFailed: number, force = false) => {
     let found = initFound;
     let failed = initFailed;
 
@@ -353,10 +353,14 @@ export default function ExhibitionDetailPage() {
       }
 
       const company = companies.find((c) => c.id === ids[i]);
-      setEnrichProgress({ current: i + 1, total: ids.length, name: company?.normalized_name || company?.raw_name || "", ids, found, failed });
+      setEnrichProgress({ current: i + 1, total: ids.length, name: company?.normalized_name || company?.raw_name || "", ids, found, failed, force });
 
       try {
-        const res = await fetch(`/api/companies/${ids[i]}/enrich`, { method: "POST" });
+        const res = await fetch(`/api/companies/${ids[i]}/enrich`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ force }),
+        });
         const data = await res.json();
         if (res.ok && data.success && data.contactsFound > 0) found++;
         else if (!res.ok || !data.success) failed++;
@@ -382,8 +386,8 @@ export default function ExhibitionDetailPage() {
     if (!enrichProgress) return;
     enrichPausedRef.current = false;
     setEnrichPaused(false);
-    const { ids, current, found, failed } = enrichProgress;
-    runEnrichLoop(ids, current, found, failed);
+    const { ids, current, found, failed, force } = enrichProgress;
+    runEnrichLoop(ids, current, found, failed, force);
   };
 
   const stopEnrich = () => {
@@ -668,6 +672,17 @@ export default function ExhibitionDetailPage() {
                         </svg>
                         기업정보 수집 ({selectedIds.size})
                       </button>
+                      <button
+                        onClick={() => startEnrich(undefined, true)}
+                        className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg bg-violet-600 text-white hover:bg-violet-700 font-medium transition-colors shadow-sm"
+                        title="Firecrawl을 사용해 JS 렌더링 사이트도 강력하게 수집"
+                      >
+                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 18.657A8 8 0 016.343 7.343S7 9 9 10c0-2 .5-5 2.986-7C14 5 16.09 5.777 17.656 7.343A7.975 7.975 0 0120 13a7.975 7.975 0 01-2.343 5.657z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.879 16.121A3 3 0 1012.015 11L11 14H9c0 .768.293 1.536.879 2.121z" />
+                        </svg>
+                        강력 수집 ({selectedIds.size})
+                      </button>
                     </>
                   )}
                   <button
@@ -701,7 +716,7 @@ export default function ExhibitionDetailPage() {
                       {!enrichPaused && <SpinnerIcon className="w-4 h-4 text-indigo-500" />}
                       {enrichPaused && <span className="w-4 h-4 flex items-center justify-center text-amber-500">⏸</span>}
                       <span className="font-medium">
-                        {enrichPaused ? "일시정지됨" : "기업정보 수집 중"}
+                        {enrichPaused ? "일시정지됨" : enrichProgress.force ? "강력 수집 중 ⚡" : "기업정보 수집 중"}
                       </span>
                       <span className="text-indigo-500">
                         {enrichProgress.current}/{enrichProgress.total}

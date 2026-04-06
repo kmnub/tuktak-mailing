@@ -131,16 +131,19 @@ function isThinContent(html: string): boolean {
 export async function validateOfficialWebsite(
   companyName: string,
   candidateUrl: string,
-  firecrawlApiKey: string
+  firecrawlApiKey: string,
+  force = false
 ): Promise<ValidationResult> {
   let html: string | null = null;
   let fcTitle: string | undefined;
   let method: "firecrawl" | "fetch" = "fetch";
 
-  // fetch 먼저 시도
-  html = await fetchBasic(candidateUrl);
+  if (!force) {
+    // 일반 수집: fetch 먼저 시도
+    html = await fetchBasic(candidateUrl);
+  }
 
-  // fetch 실패 또는 콘텐츠가 너무 적으면 (JS 렌더링 페이지) Firecrawl 시도
+  // force이거나 fetch 실패/콘텐츠 부족 시 Firecrawl 사용
   if (!html || isThinContent(html)) {
     const fcResult = await scrapeWithFirecrawl(candidateUrl, firecrawlApiKey);
     if (fcResult?.html) {
