@@ -153,18 +153,31 @@ function extractFromHtml(html: string): { emails: Set<string>; phones: Set<strin
   return { emails, phones, methods };
 }
 
-// 메인 페이지: Firecrawl → fetch 순서로 시도
+/** fetch 결과가 의미 있는 콘텐츠인지 확인 (JS 렌더링 전 빈 페이지 감지) */
+function isThinContent(html: string): boolean {
+  const $ = cheerio.load(html);
+  $("script, style, nav, header, footer, noscript").remove();
+  const text = $("body").text().replace(/\s+/g, " ").trim();
+  return text.length < 200;
+}
+
+// 메인 페이지: fetch 먼저, 콘텐츠 부족 시 Firecrawl fallback
 async function processMainPage(url: string, firecrawlApiKey: string): Promise<PageResult> {
   let html: string | null = null;
   const methods: string[] = [];
 
-  const fc = await scrapeWithFirecrawl(url, firecrawlApiKey);
-  if (fc?.html) {
-    html = fc.html;
-    methods.push("firecrawl");
+  // fetch 먼저 시도
+  html = await fetchBasic(url);
+
+  // 콘텐츠가 너무 적으면 (JS 렌더링 페이지) Firecrawl 시도
+  if (!html || isThinContent(html)) {
+    const fc = await scrapeWithFirecrawl(url, firecrawlApiKey);
+    if (fc?.html) {
+      html = fc.html;
+      methods.push("firecrawl");
+    }
   } else {
-    html = await fetchBasic(url);
-    if (html) methods.push("fetch");
+    methods.push("fetch");
   }
 
   if (!html) return { emails: new Set(), phones: new Set(), methods: [], fetched: false, html: null };

@@ -120,6 +120,14 @@ async function fetchBasic(url: string): Promise<string | null> {
   }
 }
 
+/** fetch 결과가 의미 있는 콘텐츠인지 확인 (JS 렌더링 전 빈 페이지 감지) */
+function isThinContent(html: string): boolean {
+  const $ = cheerio.load(html);
+  $("script, style, nav, header, footer, noscript").remove();
+  const text = $("body").text().replace(/\s+/g, " ").trim();
+  return text.length < 200;
+}
+
 export async function validateOfficialWebsite(
   companyName: string,
   candidateUrl: string,
@@ -127,17 +135,19 @@ export async function validateOfficialWebsite(
 ): Promise<ValidationResult> {
   let html: string | null = null;
   let fcTitle: string | undefined;
-  let method: "firecrawl" | "fetch" = "firecrawl";
+  let method: "firecrawl" | "fetch" = "fetch";
 
-  // Firecrawl 우선 시도
-  const fcResult = await scrapeWithFirecrawl(candidateUrl, firecrawlApiKey);
-  if (fcResult?.html) {
-    html = fcResult.html;
-    fcTitle = fcResult.title;
-  } else {
-    // 기본 fetch fallback
-    method = "fetch";
-    html = await fetchBasic(candidateUrl);
+  // fetch 먼저 시도
+  html = await fetchBasic(candidateUrl);
+
+  // fetch 실패 또는 콘텐츠가 너무 적으면 (JS 렌더링 페이지) Firecrawl 시도
+  if (!html || isThinContent(html)) {
+    const fcResult = await scrapeWithFirecrawl(candidateUrl, firecrawlApiKey);
+    if (fcResult?.html) {
+      html = fcResult.html;
+      fcTitle = fcResult.title;
+      method = "firecrawl";
+    }
   }
 
   if (!html) {
