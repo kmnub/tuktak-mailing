@@ -140,7 +140,8 @@ export async function POST(req: NextRequest) {
       url,
       useAI = false,
       totalPages,
-    } = body as { url: string; useAI?: boolean; totalPages?: number };
+      exhibitionId,
+    } = body as { url: string; useAI?: boolean; totalPages?: number; exhibitionId?: string };
 
     if (!/^https?:\/\/.+/.test(url)) {
       return NextResponse.json(
@@ -249,6 +250,7 @@ export async function POST(req: NextRequest) {
     if (filtered.length > 0) {
       const records = filtered.map((c) => ({
         crawl_id: crawlId,
+        ...(exhibitionId && { exhibition_id: exhibitionId }),
         raw_name: c.name,
         normalized_name: c.normalizedName,
         source_url: c.source_url,
