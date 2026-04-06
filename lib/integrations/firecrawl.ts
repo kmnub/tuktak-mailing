@@ -9,7 +9,7 @@ export interface FirecrawlResult {
 export async function scrapeWithFirecrawl(
   url: string,
   apiKey: string,
-  timeoutMs = 30000
+  timeoutMs = 12000
 ): Promise<FirecrawlResult | null> {
   try {
     const response = await fetch("https://api.firecrawl.dev/v1/scrape", {

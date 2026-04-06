@@ -120,16 +120,41 @@ async function fetchBasic(url: string): Promise<string | null> {
   }
 }
 
-async function processPage(
-  url: string,
-  firecrawlApiKey: string
-): Promise<{
+type PageResult = {
   emails: Set<string>;
   phones: Set<string>;
   methods: string[];
   fetched: boolean;
   html: string | null;
-}> {
+};
+
+function extractFromHtml(html: string): { emails: Set<string>; phones: Set<string>; methods: string[] } {
+  const emails = new Set<string>();
+  const phones = new Set<string>();
+  const methods: string[] = [];
+
+  const jsonLd = fromJsonLd(html);
+  jsonLd.emails.forEach((e) => emails.add(e));
+  jsonLd.phones.forEach((p) => phones.add(p));
+  if (jsonLd.emails.length || jsonLd.phones.length) methods.push("json-ld");
+
+  const links = fromLinks(html);
+  links.emails.forEach((e) => emails.add(e));
+  links.phones.forEach((p) => phones.add(p));
+  if (links.emails.length || links.phones.length) methods.push("links");
+
+  if (emails.size === 0 && phones.size === 0) {
+    const regex = fromRegex(html);
+    regex.emails.forEach((e) => emails.add(e));
+    regex.phones.forEach((p) => phones.add(p));
+    if (regex.emails.length || regex.phones.length) methods.push("regex");
+  }
+
+  return { emails, phones, methods };
+}
+
+// 메인 페이지: Firecrawl → fetch 순서로 시도
+async function processMainPage(url: string, firecrawlApiKey: string): Promise<PageResult> {
   let html: string | null = null;
   const methods: string[] = [];
 
@@ -144,30 +169,17 @@ async function processPage(
 
   if (!html) return { emails: new Set(), phones: new Set(), methods: [], fetched: false, html: null };
 
-  const emails = new Set<string>();
-  const phones = new Set<string>();
+  const { emails, phones, methods: extractMethods } = extractFromHtml(html);
+  return { emails, phones, methods: [...methods, ...extractMethods], fetched: true, html };
+}
 
-  // JSON-LD (1순위)
-  const jsonLd = fromJsonLd(html);
-  jsonLd.emails.forEach((e) => emails.add(e));
-  jsonLd.phones.forEach((p) => phones.add(p));
-  if (jsonLd.emails.length || jsonLd.phones.length) methods.push("json-ld");
+// 서브 페이지: fetch만 사용 (Firecrawl 크레딧 절약)
+async function processSubPage(url: string): Promise<PageResult> {
+  const html = await fetchBasic(url);
+  if (!html) return { emails: new Set(), phones: new Set(), methods: [], fetched: false, html: null };
 
-  // links (2순위)
-  const links = fromLinks(html);
-  links.emails.forEach((e) => emails.add(e));
-  links.phones.forEach((p) => phones.add(p));
-  if (links.emails.length || links.phones.length) methods.push("links");
-
-  // regex (3순위) — 앞서 수집 실패 시만 시도
-  if (emails.size === 0 && phones.size === 0) {
-    const regex = fromRegex(html);
-    regex.emails.forEach((e) => emails.add(e));
-    regex.phones.forEach((p) => phones.add(p));
-    if (regex.emails.length || regex.phones.length) methods.push("regex");
-  }
-
-  return { emails, phones, methods, fetched: true, html };
+  const { emails, phones, methods } = extractFromHtml(html);
+  return { emails, phones, methods: ["fetch", ...methods], fetched: true, html };
 }
 
 export async function extractCompanyContact(
@@ -175,40 +187,38 @@ export async function extractCompanyContact(
   firecrawlApiKey: string
 ): Promise<ContactResult & { firstPageHtml: string | null }> {
   const pages = buildContactPages(homepageUrl);
+  const [mainUrl, ...subUrls] = pages;
+
+  // 메인 페이지(Firecrawl)와 서브 페이지(fetch)를 동시에 병렬 실행
+  const [mainResult, ...subResults] = await Promise.all([
+    processMainPage(mainUrl, firecrawlApiKey),
+    ...subUrls.map((url) => processSubPage(url)),
+  ]);
+
   const allEmails = new Set<string>();
   const allPhones = new Set<string>();
   const sourceUrls: string[] = [];
   const allMethods: string[] = [];
-  let firstPageHtml: string | null = null;
+  const firstPageHtml = mainResult.html;
 
-  for (const pageUrl of pages) {
-    const result = await processPage(pageUrl, firecrawlApiKey);
-
-    if (pageUrl === homepageUrl) firstPageHtml = result.html;
-
+  for (const [result, url] of [[mainResult, mainUrl], ...subResults.map((r, i) => [r, subUrls[i]])] as [PageResult, string][]) {
     if (result.emails.size > 0 || result.phones.size > 0) {
       result.emails.forEach((e) => allEmails.add(e));
       result.phones.forEach((p) => allPhones.add(p));
-      sourceUrls.push(pageUrl);
+      sourceUrls.push(url);
       result.methods.forEach((m) => {
         if (!allMethods.includes(m)) allMethods.push(m);
       });
     }
-
-    // 이메일·전화 모두 확보되면 조기 종료
-    if (allEmails.size > 0 && allPhones.size > 0) break;
   }
 
   const emails = [...allEmails];
   const telephones = [...allPhones];
 
-  const hasHighConfidence =
-    allMethods.includes("json-ld") || allMethods.includes("links");
+  const hasHighConfidence = allMethods.includes("json-ld") || allMethods.includes("links");
   const confidence =
     emails.length > 0 || telephones.length > 0
-      ? hasHighConfidence
-        ? 0.85
-        : 0.5
+      ? hasHighConfidence ? 0.85 : 0.5
       : 0;
 
   return {

@@ -126,7 +126,7 @@ export async function findOfficialWebsiteCandidates(
       reason: reasons,
     });
 
-    if (candidates.length >= 5) break;
+    if (candidates.length >= 3) break;
   }
 
   return candidates;

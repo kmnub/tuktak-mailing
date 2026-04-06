@@ -158,6 +158,7 @@ export default function ExhibitionDetailPage() {
   // 기업정보 수집
   const [enrichProgress, setEnrichProgress] = useState<{
     current: number; total: number; name: string; ids: string[];
+    found: number; failed: number;
   } | null>(null);
   const enrichPausedRef = useRef(false);
   const enrichStoppedRef = useRef(false);
@@ -318,11 +319,14 @@ export default function ExhibitionDetailPage() {
     enrichPausedRef.current = false;
     enrichStoppedRef.current = false;
     setEnrichPaused(false);
-    setEnrichProgress({ current: 0, total: targetIds.length, name: "", ids: targetIds });
-    await runEnrichLoop(targetIds, 0);
+    setEnrichProgress({ current: 0, total: targetIds.length, name: "", ids: targetIds, found: 0, failed: 0 });
+    await runEnrichLoop(targetIds, 0, 0, 0);
   };
 
-  const runEnrichLoop = async (ids: string[], startIdx: number) => {
+  const runEnrichLoop = async (ids: string[], startIdx: number, initFound: number, initFailed: number) => {
+    let found = initFound;
+    let failed = initFailed;
+
     for (let i = startIdx; i < ids.length; i++) {
       if (enrichStoppedRef.current) break;
 
@@ -331,14 +335,19 @@ export default function ExhibitionDetailPage() {
       }
 
       const company = companies.find((c) => c.id === ids[i]);
-      setEnrichProgress({ current: i + 1, total: ids.length, name: company?.normalized_name || company?.raw_name || "", ids });
+      setEnrichProgress({ current: i + 1, total: ids.length, name: company?.normalized_name || company?.raw_name || "", ids, found, failed });
 
       try {
-        await fetch(`/api/companies/${ids[i]}/enrich`, { method: "POST" });
+        const res = await fetch(`/api/companies/${ids[i]}/enrich`, { method: "POST" });
+        const data = await res.json();
+        if (res.ok && data.success && data.contactsFound > 0) found++;
+        else if (!res.ok || !data.success) failed++;
         await loadData();
       } catch {
-        // 오류 시 다음 기업으로
+        failed++;
       }
+
+      setEnrichProgress((prev) => prev ? { ...prev, found, failed } : null);
     }
     if (!enrichPausedRef.current) {
       setEnrichProgress(null);
@@ -355,8 +364,8 @@ export default function ExhibitionDetailPage() {
     if (!enrichProgress) return;
     enrichPausedRef.current = false;
     setEnrichPaused(false);
-    const { ids, current } = enrichProgress;
-    runEnrichLoop(ids, current);
+    const { ids, current, found, failed } = enrichProgress;
+    runEnrichLoop(ids, current, found, failed);
   };
 
   const stopEnrich = () => {
@@ -644,6 +653,12 @@ export default function ExhibitionDetailPage() {
                         {enrichProgress.current}/{enrichProgress.total}
                         {enrichProgress.name && ` — ${enrichProgress.name}`}
                       </span>
+                      {(enrichProgress.found > 0 || enrichProgress.failed > 0) && (
+                        <span className="text-xs text-gray-500 ml-1">
+                          {enrichProgress.found > 0 && <span className="text-emerald-600 font-medium">✓{enrichProgress.found}</span>}
+                          {enrichProgress.failed > 0 && <span className="text-red-500 font-medium ml-1">✗{enrichProgress.failed}</span>}
+                        </span>
+                      )}
                     </div>
                     <div className="flex items-center gap-2">
                       {!enrichPaused ? (

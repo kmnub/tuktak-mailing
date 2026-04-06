@@ -6,7 +6,7 @@ import { validateOfficialWebsite } from "@/lib/enrichment/validate-official-webs
 import { extractCompanyContact } from "@/lib/enrichment/extract-company-contact";
 import { extractContactWithAI } from "@/lib/enrichment/ai-contact-extractor";
 
-export const maxDuration = 60;
+export const maxDuration = 120;
 
 export async function POST(
   _req: NextRequest,
@@ -57,16 +57,22 @@ export async function POST(
       return NextResponse.json({ success: false, message: "검색 결과 없음", companyName });
     }
 
-    // [3] 후보 검증 (Firecrawl + fetch)
-    console.log(`[Enrich] 후보 검증 중...`);
-    const validations = await Promise.all(
-      candidates.map((c) =>
+    // [3] 후보 검증 — 상위 2개만 Firecrawl 검증, 나머지는 점수 0으로 처리
+    console.log(`[Enrich] 후보 검증 중 (상위 2개)...`);
+    const topCandidates = candidates.slice(0, 2);
+    const restCandidates = candidates.slice(2);
+    const topValidations = await Promise.all(
+      topCandidates.map((c) =>
         validateOfficialWebsite(companyName, c.url, env.FIRECRAWL_API_KEY).catch((err) => {
           console.error(`[Enrich] 검증 오류 ${c.url}:`, err);
           return null;
         })
       )
     );
+    const validations = [
+      ...topValidations,
+      ...restCandidates.map(() => null),
+    ];
 
     // [4] company_sources 저장
     const sourceRecords = candidates.map((c, i) => {
