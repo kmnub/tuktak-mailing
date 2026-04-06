@@ -18,6 +18,7 @@ function isValidUrl(value: string): boolean {
 export default function CrawlsPage() {
   const [url, setUrl] = useState("");
   const [useAI, setUseAI] = useState(false);
+  const [totalPages, setTotalPages] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<CrawlResponse | null>(null);
@@ -30,6 +31,12 @@ export default function CrawlsPage() {
       return;
     }
 
+    const parsedPages = totalPages.trim() ? parseInt(totalPages, 10) : undefined;
+    if (parsedPages !== undefined && (isNaN(parsedPages) || parsedPages < 1)) {
+      setError("페이지 수는 1 이상의 숫자를 입력하세요.");
+      return;
+    }
+
     setError(null);
     setResult(null);
     setLoading(true);
@@ -38,7 +45,7 @@ export default function CrawlsPage() {
       const res = await fetch("/api/crawl", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url, useAI }),
+        body: JSON.stringify({ url, useAI, totalPages: parsedPages }),
       });
 
       const data: CrawlResponse & { error?: string } = await res.json();
@@ -70,6 +77,25 @@ export default function CrawlsPage() {
           disabled={loading}
           className="border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
         />
+
+        <div className="flex items-center gap-3">
+          <label className="flex items-center gap-1.5 text-sm text-gray-600 whitespace-nowrap">
+            <span>총 페이지 수</span>
+          </label>
+          <input
+            type="number"
+            min={1}
+            max={50}
+            value={totalPages}
+            onChange={(e) => setTotalPages(e.target.value)}
+            placeholder="비우면 자동 탐지"
+            disabled={loading}
+            className="w-36 border border-gray-300 rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
+          />
+          <span className="text-xs text-gray-400">
+            페이지네이션이 JS 기반이면 직접 입력 필요
+          </span>
+        </div>
 
         <label className="flex items-center gap-2 text-sm text-gray-600 select-none cursor-pointer w-fit">
           <input

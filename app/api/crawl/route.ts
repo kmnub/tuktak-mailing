@@ -5,7 +5,7 @@ import { extractCompaniesWithAI } from "@/lib/ai/extract-with-ai";
 import { dedupe } from "@/lib/normalize/dedupe";
 import { supabase } from "@/lib/supabase/client";
 
-const MAX_PAGES = 30;
+const MAX_PAGES = 50;
 const FETCH_TIMEOUT_MS = 15000;
 
 const FETCH_HEADERS = {
@@ -68,6 +68,53 @@ function detectPageUrls(html: string, originalUrl: string): string[] {
   return Array.from(urls).slice(0, MAX_PAGES - 1);
 }
 
+/**
+ * 총 페이지 수를 지정하면 페이지 URL을 직접 생성한다.
+ * 일반 파라미터명 후보(page, cpage, p)를 차례로 시도해 실제 콘텐츠가
+ * 달라지는 파라미터를 선택한다.
+ */
+async function buildPageUrls(
+  firstHtml: string,
+  originalUrl: string,
+  totalPages: number
+): Promise<string[]> {
+  const base = new URL(originalUrl);
+  const PAGE_PARAMS = ["page", "cpage", "p", "pagenum", "pg"];
+
+  // 이미 사용 중인 파라미터가 있으면 그대로 사용
+  for (const param of PAGE_PARAMS) {
+    if (base.searchParams.has(param)) {
+      return Array.from({ length: totalPages - 1 }, (_, i) => {
+        const u = new URL(originalUrl);
+        u.searchParams.set(param, String(i + 2));
+        return u.toString();
+      });
+    }
+  }
+
+  // 파라미터가 없으면 page=2 URL을 실제로 fetch해 1페이지와 내용이 다른지 확인
+  for (const param of PAGE_PARAMS) {
+    const testUrl = new URL(originalUrl);
+    testUrl.searchParams.set(param, "2");
+    const testHtml = await fetchHtml(testUrl.toString());
+    if (testHtml && testHtml !== firstHtml) {
+      // 내용이 다르면 이 파라미터가 페이지네이션용임
+      return Array.from({ length: totalPages - 1 }, (_, i) => {
+        const u = new URL(originalUrl);
+        u.searchParams.set(param, String(i + 2));
+        return u.toString();
+      });
+    }
+  }
+
+  // 판별 실패 시 기본값 page 사용
+  return Array.from({ length: totalPages - 1 }, (_, i) => {
+    const u = new URL(originalUrl);
+    u.searchParams.set("page", String(i + 2));
+    return u.toString();
+  });
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body: unknown = await req.json();
@@ -81,11 +128,22 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "url 필드가 필요합니다." }, { status: 400 });
     }
 
-    const { url, useAI = false } = body as { url: string; useAI?: boolean };
+    const {
+      url,
+      useAI = false,
+      totalPages,
+    } = body as { url: string; useAI?: boolean; totalPages?: number };
 
     if (!/^https?:\/\/.+/.test(url)) {
       return NextResponse.json(
         { error: "http:// 또는 https://로 시작하는 URL을 입력해주세요." },
+        { status: 400 }
+      );
+    }
+
+    if (totalPages !== undefined && (totalPages < 1 || totalPages > MAX_PAGES)) {
+      return NextResponse.json(
+        { error: `totalPages는 1~${MAX_PAGES} 사이여야 합니다.` },
         { status: 400 }
       );
     }
@@ -101,8 +159,18 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // [2] 페이지네이션 URL 탐지 → 추가 페이지 병렬 수집
-    const additionalPageUrls = detectPageUrls(firstHtml, url);
+    // [2] 추가 페이지 URL 결정
+    let additionalPageUrls: string[];
+
+    if (totalPages && totalPages > 1) {
+      // 사용자가 총 페이지 수를 직접 지정한 경우
+      additionalPageUrls = await buildPageUrls(firstHtml, url, totalPages);
+    } else {
+      // 자동 탐지
+      additionalPageUrls = detectPageUrls(firstHtml, url);
+    }
+
+    // [3] 추가 페이지 병렬 수집
     const additionalHtmls = await Promise.all(
       additionalPageUrls.map((pageUrl) => fetchHtml(pageUrl))
     );
@@ -118,16 +186,14 @@ export async function POST(req: NextRequest) {
       `[크롤링] ${url} — ${allPages.length}페이지, 추출방법: ${shouldUseAI ? "AI" : "정적"}`
     );
 
-    // [3] 기업명 추출
+    // [4] 기업명 추출
     let rawCandidates: { name: string; source_url: string }[];
 
     if (shouldUseAI) {
-      // AI 추출: 각 페이지를 병렬로 처리
       const perPageResults = await Promise.all(
         allPages.map(({ html, pageUrl }) =>
           extractCompaniesWithAI(html, pageUrl).catch((err) => {
             console.error(`[AI 추출 오류] ${pageUrl}:`, err);
-            // AI 실패 시 정적 추출로 폴백
             return extractCompanies(html, pageUrl);
           })
         )
@@ -139,10 +205,10 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // [4] 중복 제거
+    // [5] 중복 제거
     const uniqueCompanies = dedupe(rawCandidates);
 
-    // [5] DB 저장
+    // [6] DB 저장
     if (uniqueCompanies.length > 0) {
       const records = uniqueCompanies.map((c) => ({
         raw_name: c.name,
