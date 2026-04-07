@@ -68,6 +68,27 @@ function generatePageUrls(baseUrl: string, numPages: number): string[] {
   }
 }
 
+/** Chrome DevTools에서 복사한 cURL 명령어 파싱 */
+function parseCurl(raw: string): { url: string; body: string; origin: string } | null {
+  const urlMatch = raw.match(/curl\s+['"](https?:\/\/[^'"]+)['"]/);
+  if (!urlMatch) return null;
+  const url = urlMatch[1];
+
+  // --data-raw, --data-binary, --data, -d 모두 처리
+  const bodyMatch =
+    raw.match(/(?:--data-raw|--data-binary|--data|-d)\s+\$?'((?:[^'\\]|\\.)*)'/s) ||
+    raw.match(/(?:--data-raw|--data-binary|--data|-d)\s+"((?:[^"\\]|\\.)*)"/s);
+  let body = bodyMatch ? bodyMatch[1] : "";
+  body = body.replace(/\\'/g, "'").replace(/\\"/g, '"');
+
+  const originMatch = raw.match(/-H\s+['"]Origin:\s*([^'"]+)['"]/i);
+  const origin = originMatch
+    ? originMatch[1].trim()
+    : (() => { try { return new URL(url).origin; } catch { return ""; } })();
+
+  return { url, body, origin };
+}
+
 function ScoreBadge({ score }: { score: number }) {
   const cls =
     score >= 7 ? "bg-emerald-50 text-emerald-700" :
@@ -169,9 +190,9 @@ export default function ExhibitionDetailPage() {
   const [totalPages, setTotalPages] = useState("");
   const [useAI, setUseAI] = useState(false);
   const [infiniteScroll, setInfiniteScroll] = useState(false);
-  const [apiUrl, setApiUrl] = useState("");
-  const [apiBody, setApiBody] = useState("");
+  const [curlInput, setCurlInput] = useState("");
   const [showContinue, setShowContinue] = useState(false);
+  const [crawlHint, setCrawlHint] = useState<string | null>(null);
   const [pastedHtml, setPastedHtml] = useState("");
   const [crawling, setCrawling] = useState(false);
   const [crawlProgress, setCrawlProgress] = useState<{ current: number; total: number; found: number } | null>(null);
@@ -239,6 +260,7 @@ export default function ExhibitionDetailPage() {
     setCrawling(true);
     setCrawlError(null);
     setCrawlMsg(null);
+    setCrawlHint(null);
     setShowContinue(false);
     crawlAbortRef.current = false;
     let totalFound = 0;
@@ -278,6 +300,13 @@ export default function ExhibitionDetailPage() {
     if (!crawlAbortRef.current) {
       setCrawlMsg(`수집 완료 — 총 ${totalFound}개 기업`);
       if (infiniteScroll) setShowContinue(true);
+      if (totalFound < 5) {
+        setCrawlHint(
+          infiniteScroll
+            ? "기업이 적게 수집됐습니다. '계속 찾기'를 눌러보거나, 사이트가 XHR API 방식이라면 '고급 수집' 탭을 이용해보세요."
+            : "기업이 적게 수집됐습니다. 스크롤 시 더 로드되는 사이트라면 '무한 스크롤'을 체크해보세요. 그래도 안 된다면 '고급 수집' 탭을 이용해보세요."
+        );
+      }
     } else {
       setCrawlMsg(`수집 중단 — ${totalFound}개 기업까지 저장됨`);
     }
@@ -318,30 +347,32 @@ export default function ExhibitionDetailPage() {
 
   const stopCrawl = () => { crawlAbortRef.current = true; };
 
-  /* ─── JSON API 직접 수집 ─── */
+  /* ─── 고급 수집 (cURL 파싱) ─── */
   const handleApiCrawl = async () => {
-    const url = apiUrl.trim();
-    if (!url) { setCrawlError("API URL을 입력해주세요."); return; }
-    let parsed: Record<string, unknown>;
+    const raw = curlInput.trim();
+    if (!raw) { setCrawlError("cURL 명령어를 붙여넣어 주세요."); return; }
+    const parsed = parseCurl(raw);
+    if (!parsed) { setCrawlError("올바른 cURL 명령어를 붙여넣어 주세요. (curl 'URL' ... 형식)"); return; }
+    let requestBody: Record<string, unknown>;
     try {
-      parsed = JSON.parse(apiBody.trim() || "{}");
+      requestBody = parsed.body ? JSON.parse(parsed.body) : {};
     } catch {
-      setCrawlError("Request Body가 올바른 JSON 형식이 아닙니다."); return;
+      setCrawlError("cURL의 Request Body를 JSON으로 파싱할 수 없습니다. 담당자에게 문의해주세요."); return;
     }
     setCrawling(true);
     setCrawlError(null);
     setCrawlMsg(null);
+    setCrawlHint(null);
     try {
-      const origin = (() => { try { return new URL(url).origin; } catch { return ""; } })();
       const res = await fetch("/api/crawl-json", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ apiUrl: url, requestBody: parsed, exhibitionId: id, originHeader: origin }),
+        body: JSON.stringify({ apiUrl: parsed.url, requestBody, exhibitionId: id, originHeader: parsed.origin }),
       });
       const d = await res.json();
       if (!res.ok) { setCrawlError(d.error ?? "수집 실패"); return; }
       await loadData();
-      setCrawlMsg(`API 수집 완료 — ${d.pages_fetched}페이지, ${d.count}개 기업`);
+      setCrawlMsg(`고급 수집 완료 — ${d.pages_fetched}페이지, ${d.count}개 기업`);
     } catch {
       setCrawlError("서버 오류가 발생했습니다.");
     } finally {
@@ -404,15 +435,17 @@ export default function ExhibitionDetailPage() {
     }
   };
 
-  /* ─── 삭제 ─── */
+  /* ─── 삭제 (일괄) ─── */
   const deleteSelected = async () => {
     const ids = [...selectedIds];
-    for (const cid of ids) {
-      setDeletingIds((p) => new Set(p).add(cid));
-      await fetch(`/api/candidates/${cid}`, { method: "DELETE" });
-      setCompanies((prev) => prev.filter((c) => c.id !== cid));
-      setDeletingIds((p) => { const n = new Set(p); n.delete(cid); return n; });
-    }
+    setDeletingIds(new Set(ids));
+    await fetch("/api/candidates", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids }),
+    });
+    setCompanies((prev) => prev.filter((c) => !selectedIds.has(c.id)));
+    setDeletingIds(new Set());
     setSelectedIds(new Set());
     setConfirmDeleteSelected(false);
   };
@@ -642,19 +675,19 @@ export default function ExhibitionDetailPage() {
             <h2 className="text-sm font-semibold text-gray-700">기업명 수집</h2>
             <div className="flex rounded-lg border border-gray-200 overflow-hidden text-xs font-medium">
               <button
-                onClick={() => { setCrawlTab("url"); setCrawlError(null); setCrawlMsg(null); }}
+                onClick={() => { setCrawlTab("url"); setCrawlError(null); setCrawlMsg(null); setCrawlHint(null); }}
                 className={`px-3 py-1.5 transition-colors ${crawlTab === "url" ? "bg-indigo-600 text-white" : "text-gray-500 hover:bg-gray-50"}`}
               >
                 URL 입력
               </button>
               <button
-                onClick={() => { setCrawlTab("api"); setCrawlError(null); setCrawlMsg(null); }}
+                onClick={() => { setCrawlTab("api"); setCrawlError(null); setCrawlMsg(null); setCrawlHint(null); }}
                 className={`px-3 py-1.5 transition-colors ${crawlTab === "api" ? "bg-indigo-600 text-white" : "text-gray-500 hover:bg-gray-50"}`}
               >
-                JSON API
+                고급 수집
               </button>
               <button
-                onClick={() => { setCrawlTab("paste"); setCrawlError(null); setCrawlMsg(null); }}
+                onClick={() => { setCrawlTab("paste"); setCrawlError(null); setCrawlMsg(null); setCrawlHint(null); }}
                 className={`px-3 py-1.5 transition-colors ${crawlTab === "paste" ? "bg-indigo-600 text-white" : "text-gray-500 hover:bg-gray-50"}`}
               >
                 HTML 붙여넣기
@@ -729,23 +762,22 @@ export default function ExhibitionDetailPage() {
               )}
             </div>
           ) : crawlTab === "api" ? (
-            /* JSON API 직접 수집 모드 */
+            /* 고급 수집 — cURL 붙여넣기 */
             <div className="space-y-2">
-              <p className="text-xs text-gray-400">
-                Chrome F12 → Network → Fetch/XHR → 기업 목록 API 요청 우클릭 → Copy as cURL → API URL과 Request Body만 아래에 입력
-              </p>
-              <input
-                type="text"
-                value={apiUrl}
-                onChange={(e) => setApiUrl(e.target.value)}
-                placeholder="https://api.example.com/api/exhibitor"
-                disabled={crawling}
-                className="w-full border border-gray-300 rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:bg-gray-50 font-mono"
-              />
+              <div className="bg-blue-50 border border-blue-100 rounded-xl px-4 py-3 text-xs text-blue-800">
+                <p className="font-semibold mb-1">URL 수집이 잘 안 될 때 사용하세요</p>
+                <ol className="list-decimal list-inside space-y-0.5 text-blue-700">
+                  <li>Chrome에서 박람회 참가업체 페이지 열기</li>
+                  <li>F12 키 → Network 탭 클릭 → XHR 필터 클릭</li>
+                  <li>페이지 새로고침 → 목록에서 exhibitor / company 등 이름의 항목 찾기</li>
+                  <li>항목 우클릭 → Copy → <strong>Copy as cURL</strong></li>
+                  <li>아래 칸에 붙여넣기 (Ctrl+V / Cmd+V)</li>
+                </ol>
+              </div>
               <textarea
-                value={apiBody}
-                onChange={(e) => setApiBody(e.target.value)}
-                placeholder={'{"lang":"kor","curPage":1,"pageList":100,...}'}
+                value={curlInput}
+                onChange={(e) => setCurlInput(e.target.value)}
+                placeholder={"curl 'https://api.example.com/exhibitors' \\\n  -H 'Content-Type: application/json' \\\n  --data-raw '{\"page\":1,...}'"}
                 disabled={crawling}
                 rows={4}
                 className="w-full border border-gray-300 rounded-xl px-4 py-3 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:bg-gray-50 resize-none"
@@ -753,7 +785,7 @@ export default function ExhibitionDetailPage() {
               <div className="flex justify-end">
                 <button
                   onClick={handleApiCrawl}
-                  disabled={crawling || !apiUrl.trim()}
+                  disabled={crawling || !curlInput.trim()}
                   className="flex items-center gap-1.5 bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 transition-colors shadow-sm whitespace-nowrap"
                 >
                   {crawling ? <SpinnerIcon className="w-4 h-4" /> : (
@@ -849,6 +881,11 @@ export default function ExhibitionDetailPage() {
                 </button>
               )}
             </div>
+          )}
+          {crawlHint && !crawlError && !crawlProgress && (
+            <p className="mt-2 text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
+              {crawlHint}
+            </p>
           )}
         </div>
 
