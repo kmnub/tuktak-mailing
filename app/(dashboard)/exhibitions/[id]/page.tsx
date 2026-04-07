@@ -164,9 +164,11 @@ export default function ExhibitionDetailPage() {
   const [error, setError] = useState<string | null>(null);
 
   // 수집 입력
+  const [crawlTab, setCrawlTab] = useState<"url" | "paste">("url");
   const [crawlUrl, setCrawlUrl] = useState("");
   const [totalPages, setTotalPages] = useState("");
   const [useAI, setUseAI] = useState(false);
+  const [pastedHtml, setPastedHtml] = useState("");
   const [crawling, setCrawling] = useState(false);
   const [crawlProgress, setCrawlProgress] = useState<{ current: number; total: number; found: number } | null>(null);
   const [crawlError, setCrawlError] = useState<string | null>(null);
@@ -274,6 +276,31 @@ export default function ExhibitionDetailPage() {
   };
 
   const stopCrawl = () => { crawlAbortRef.current = true; };
+
+  /* ─── HTML 붙여넣기 수집 ─── */
+  const handlePasteCrawl = async () => {
+    const html = pastedHtml.trim();
+    if (!html) { setCrawlError("HTML을 붙여넣어 주세요."); return; }
+    setCrawling(true);
+    setCrawlError(null);
+    setCrawlMsg(null);
+    try {
+      const res = await fetch("/api/crawl", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ html, url: crawlUrl.trim() || "pasted", exhibitionId: id }),
+      });
+      const d = await res.json();
+      if (!res.ok) { setCrawlError(d.error ?? "추출 실패"); return; }
+      await loadData();
+      setCrawlMsg(`추출 완료 — ${d.count}개 기업`);
+      if (d.count > 0) setPastedHtml("");
+    } catch {
+      setCrawlError("서버 오류가 발생했습니다.");
+    } finally {
+      setCrawling(false);
+    }
+  };
 
   /* ─── 선택 ─── */
   const activeCompanies = companies.filter((c) => c.status !== "excluded");
@@ -539,63 +566,118 @@ export default function ExhibitionDetailPage() {
 
         {/* 기업명 수집 */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm px-6 py-5">
-          <h2 className="text-sm font-semibold text-gray-700 mb-3">기업명 수집</h2>
-
-          {/* 한 줄 입력 */}
-          <div className="flex items-center gap-2 flex-wrap">
-            <input
-              ref={urlInputRef}
-              type="text"
-              value={crawlUrl}
-              onChange={(e) => setCrawlUrl(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter" && !crawling) handleCrawl(); }}
-              placeholder="https://expo-example.co.kr/exhibitors"
-              disabled={crawling}
-              className="flex-1 min-w-0 border border-gray-300 rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:bg-gray-50"
-            />
-            <input
-              type="number"
-              min={1}
-              max={50}
-              value={totalPages}
-              onChange={(e) => setTotalPages(e.target.value)}
-              placeholder="페이지 수"
-              disabled={crawling}
-              className="w-24 border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:bg-gray-50"
-            />
-            <label className="flex items-center gap-1.5 text-sm text-gray-600 cursor-pointer select-none whitespace-nowrap">
-              <input
-                type="checkbox"
-                checked={useAI}
-                onChange={(e) => setUseAI(e.target.checked)}
-                disabled={crawling}
-                className="w-4 h-4 accent-violet-600"
-              />
-              <span className={useAI ? "text-violet-700 font-medium" : ""}>AI 수집</span>
-            </label>
-            {!crawling ? (
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-semibold text-gray-700">기업명 수집</h2>
+            <div className="flex rounded-lg border border-gray-200 overflow-hidden text-xs font-medium">
               <button
-                onClick={handleCrawl}
-                disabled={!crawlUrl.trim()}
-                className="flex items-center gap-1.5 bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 transition-colors shadow-sm whitespace-nowrap"
+                onClick={() => { setCrawlTab("url"); setCrawlError(null); setCrawlMsg(null); }}
+                className={`px-3 py-1.5 transition-colors ${crawlTab === "url" ? "bg-indigo-600 text-white" : "text-gray-500 hover:bg-gray-50"}`}
               >
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                </svg>
-                기업명 수집
+                URL 입력
               </button>
-            ) : (
               <button
-                onClick={stopCrawl}
-                className="flex items-center gap-1.5 bg-red-500 text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-red-600 transition-colors shadow-sm whitespace-nowrap"
+                onClick={() => { setCrawlTab("paste"); setCrawlError(null); setCrawlMsg(null); }}
+                className={`px-3 py-1.5 transition-colors ${crawlTab === "paste" ? "bg-indigo-600 text-white" : "text-gray-500 hover:bg-gray-50"}`}
               >
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-                수집 중단
+                HTML 붙여넣기
               </button>
-            )}
+            </div>
           </div>
+
+          {crawlTab === "url" ? (
+            /* URL 크롤 모드 */
+            <div className="flex items-center gap-2 flex-wrap">
+              <input
+                ref={urlInputRef}
+                type="text"
+                value={crawlUrl}
+                onChange={(e) => setCrawlUrl(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter" && !crawling) handleCrawl(); }}
+                placeholder="https://expo-example.co.kr/exhibitors"
+                disabled={crawling}
+                className="flex-1 min-w-0 border border-gray-300 rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:bg-gray-50"
+              />
+              <input
+                type="number"
+                min={1}
+                max={50}
+                value={totalPages}
+                onChange={(e) => setTotalPages(e.target.value)}
+                placeholder="페이지 수"
+                disabled={crawling}
+                className="w-24 border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:bg-gray-50"
+              />
+              <label className="flex items-center gap-1.5 text-sm text-gray-600 cursor-pointer select-none whitespace-nowrap">
+                <input
+                  type="checkbox"
+                  checked={useAI}
+                  onChange={(e) => setUseAI(e.target.checked)}
+                  disabled={crawling}
+                  className="w-4 h-4 accent-violet-600"
+                />
+                <span className={useAI ? "text-violet-700 font-medium" : ""}>AI 수집</span>
+              </label>
+              {!crawling ? (
+                <button
+                  onClick={handleCrawl}
+                  disabled={!crawlUrl.trim()}
+                  className="flex items-center gap-1.5 bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 transition-colors shadow-sm whitespace-nowrap"
+                >
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                  기업명 수집
+                </button>
+              ) : (
+                <button
+                  onClick={stopCrawl}
+                  className="flex items-center gap-1.5 bg-red-500 text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-red-600 transition-colors shadow-sm whitespace-nowrap"
+                >
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                  수집 중단
+                </button>
+              )}
+            </div>
+          ) : (
+            /* HTML 붙여넣기 모드 */
+            <div className="space-y-2">
+              <p className="text-xs text-gray-400">
+                Chrome에서 박람회 참가업체 페이지 열기 → F12 → Elements 탭 → 기업 목록 영역 우클릭 → Copy → Copy outerHTML → 아래에 붙여넣기
+              </p>
+              <textarea
+                value={pastedHtml}
+                onChange={(e) => setPastedHtml(e.target.value)}
+                placeholder={'<ul class="exhibitor-list">\n  <li>삼성전자</li>\n  ...\n</ul>'}
+                disabled={crawling}
+                rows={6}
+                className="w-full border border-gray-300 rounded-xl px-4 py-3 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:bg-gray-50 resize-none"
+              />
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={crawlUrl}
+                  onChange={(e) => setCrawlUrl(e.target.value)}
+                  placeholder="출처 URL (선택사항)"
+                  disabled={crawling}
+                  className="flex-1 border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:bg-gray-50"
+                />
+                <button
+                  onClick={handlePasteCrawl}
+                  disabled={crawling || !pastedHtml.trim()}
+                  className="flex items-center gap-1.5 bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 transition-colors shadow-sm whitespace-nowrap"
+                >
+                  {crawling ? <SpinnerIcon className="w-4 h-4" /> : (
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                    </svg>
+                  )}
+                  기업명 추출
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* 수집 진행 바 */}
           {crawlProgress && (

@@ -127,13 +127,59 @@ export async function POST(req: NextRequest) {
   try {
     const body: unknown = await req.json();
 
-    if (
-      !body ||
-      typeof body !== "object" ||
-      !("url" in body) ||
-      typeof body.url !== "string"
-    ) {
-      return NextResponse.json({ error: "url 필드가 필요합니다." }, { status: 400 });
+    if (!body || typeof body !== "object") {
+      return NextResponse.json({ error: "요청 본문이 필요합니다." }, { status: 400 });
+    }
+
+    const b = body as Record<string, unknown>;
+
+    // ── HTML 직접 붙여넣기 모드 ──────────────────────────────────────────────
+    if ("html" in b && typeof b.html === "string") {
+      const pastedHtml = b.html.trim();
+      const sourceUrl = typeof b.url === "string" ? b.url : "pasted";
+      const exhibitionId = typeof b.exhibitionId === "string" ? b.exhibitionId : undefined;
+
+      if (!pastedHtml) {
+        return NextResponse.json({ error: "HTML이 비어 있습니다." }, { status: 400 });
+      }
+
+      const crawlId = crypto.randomUUID();
+      const rawCandidates = extractCompanies(pastedHtml, sourceUrl);
+      const scored = scoreAll(rawCandidates);
+      const filtered = filterCompanies(scored);
+
+      if (filtered.length > 0) {
+        const records = filtered.map((c) => ({
+          crawl_id: crawlId,
+          ...(exhibitionId && { exhibition_id: exhibitionId }),
+          raw_name: c.name,
+          normalized_name: c.normalizedName,
+          source_url: c.source_url,
+          score: c.score,
+          selector: c.selector,
+          extraction_method: "html-paste",
+          status: "candidate" as const,
+        }));
+        const { error: dbError } = await supabase.from("company_candidates").insert(records);
+        if (dbError) {
+          return NextResponse.json({ error: `DB 저장 실패: ${dbError.message}` }, { status: 500 });
+        }
+      }
+
+      return NextResponse.json({
+        success: true,
+        crawl_id: crawlId,
+        source_url: sourceUrl,
+        pages_fetched: 1,
+        extraction_method: "html-paste",
+        count: filtered.length,
+        companies: filtered.map((c) => ({ name: c.name, score: c.score })),
+      });
+    }
+
+    // ── URL 크롤 모드 ────────────────────────────────────────────────────────
+    if (!("url" in b) || typeof b.url !== "string") {
+      return NextResponse.json({ error: "url 또는 html 필드가 필요합니다." }, { status: 400 });
     }
 
     const {
@@ -142,7 +188,7 @@ export async function POST(req: NextRequest) {
       totalPages,
       exhibitionId,
       singlePage = false,
-    } = body as { url: string; useAI?: boolean; totalPages?: number; exhibitionId?: string; singlePage?: boolean };
+    } = b as { url: string; useAI?: boolean; totalPages?: number; exhibitionId?: string; singlePage?: boolean };
 
     if (!/^https?:\/\/.+/.test(url)) {
       return NextResponse.json(
@@ -186,7 +232,7 @@ export async function POST(req: NextRequest) {
     // ── [2] 추가 페이지 URL 결정 ────────────────────────────────────────────
     let additionalPageUrls: string[];
     if (singlePage) {
-      additionalPageUrls = []; // 단일 페이지 모드: 페이지네이션 없이 이 URL만 처리
+      additionalPageUrls = [];
     } else if (totalPages && totalPages > 1) {
       additionalPageUrls = await buildPageUrls(firstHtml, url, totalPages);
     } else {
