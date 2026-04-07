@@ -3,7 +3,7 @@ import * as cheerio from "cheerio";
 import { extractCompanies } from "@/lib/parser/extract-companies";
 import { extractCompaniesWithAI } from "@/lib/ai/extract-with-ai";
 import { extractCompaniesAI } from "@/lib/crawl/ai-extractor";
-import { fetchWithPlaywright } from "@/lib/crawl/playwright-crawler";
+import { scrapeWithFirecrawl } from "@/lib/integrations/firecrawl";
 import { scoreAll, type RawCandidate } from "@/lib/scoring/score-company";
 import { filterCompanies } from "@/lib/filter/filter-companies";
 import { supabase } from "@/lib/supabase/client";
@@ -209,16 +209,19 @@ export async function POST(req: NextRequest) {
 
     // ── [1] 첫 페이지 수집 ──────────────────────────────────────────────────
     let firstHtml = await fetchHtml(url);
-    let extractionMethod: "html" | "playwright" | "ai" = "html";
+    let extractionMethod: "html" | "firecrawl" | "ai" = "html";
 
-    // 빠른 점검: 정적 fetch로 의미 있는 콘텐츠가 없으면 Playwright 시도
+    // 빠른 점검: 정적 fetch로 의미 있는 콘텐츠가 없으면 Firecrawl(JS 렌더링) 시도
     const quickCheck = firstHtml ? extractCompanies(firstHtml, url) : [];
     if (quickCheck.length < PLAYWRIGHT_THRESHOLD) {
-      console.log(`[크롤링] 정적 결과 ${quickCheck.length}개 → Playwright 시도`);
-      const pwHtml = await fetchWithPlaywright(url);
-      if (pwHtml) {
-        firstHtml = pwHtml;
-        extractionMethod = "playwright";
+      const firecrawlKey = process.env.FIRECRAWL_API_KEY;
+      if (firecrawlKey) {
+        console.log(`[크롤링] 정적 결과 ${quickCheck.length}개 → Firecrawl 시도`);
+        const fcResult = await scrapeWithFirecrawl(url, firecrawlKey, 30000);
+        if (fcResult?.html) {
+          firstHtml = fcResult.html;
+          extractionMethod = "firecrawl";
+        }
       }
     }
 
@@ -240,8 +243,17 @@ export async function POST(req: NextRequest) {
     }
 
     // ── [3] 추가 페이지 병렬 수집 ───────────────────────────────────────────
+    const firecrawlKey = process.env.FIRECRAWL_API_KEY;
     const additionalHtmls = await Promise.all(
-      additionalPageUrls.map((pageUrl) => fetchHtml(pageUrl))
+      additionalPageUrls.map(async (pageUrl) => {
+        const html = await fetchHtml(pageUrl);
+        const check = html ? extractCompanies(html, pageUrl) : [];
+        if (check.length < PLAYWRIGHT_THRESHOLD && firecrawlKey) {
+          const fcResult = await scrapeWithFirecrawl(pageUrl, firecrawlKey, 30000);
+          return fcResult?.html ?? html;
+        }
+        return html;
+      })
     );
 
     const allPages: { html: string; pageUrl: string }[] = [
