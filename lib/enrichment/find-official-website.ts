@@ -36,6 +36,46 @@ const BLACKLIST_DOMAINS = [
   "linkedin.com",
   "youtube.com",
   "blog.kakao.com",
+  // 뉴스
+  "yonhapnews.co.kr",
+  "yna.co.kr",
+  "chosun.com",
+  "joongang.co.kr",
+  "donga.com",
+  "hani.co.kr",
+  "hankyung.com",
+  "mk.co.kr",
+  "sedaily.com",
+  "etnews.com",
+  "zdnet.co.kr",
+  "dt.co.kr",
+  "aitimes.com",
+  "newsis.com",
+  "newspim.com",
+  "biz.chosun.com",
+  "news1.kr",
+  "nocutnews.co.kr",
+  "ohmynews.com",
+  "pressian.com",
+  "mediatoday.co.kr",
+  "kukinews.com",
+  "fnnews.com",
+  "heraldcorp.com",
+  "kbs.co.kr",
+  "mbc.co.kr",
+  "sbs.co.kr",
+  "jtbc.co.kr",
+  "mbn.co.kr",
+  "tvchosun.com",
+  "channela.com",
+];
+
+// 정부/공공기관 도메인 패턴 — go.kr, or.kr 등
+const BLACKLIST_DOMAIN_SUFFIXES = [
+  ".go.kr",
+  ".re.kr",
+  ".ac.kr",
+  ".mil.kr",
 ];
 
 // URL 경로에 포함되면 제외
@@ -55,6 +95,12 @@ function isBlacklisted(url: string): { blocked: boolean; reason: string } {
     for (const d of BLACKLIST_DOMAINS) {
       if (host === d || host.endsWith(`.${d}`)) {
         return { blocked: true, reason: `블랙리스트 도메인: ${d}` };
+      }
+    }
+
+    for (const suffix of BLACKLIST_DOMAIN_SUFFIXES) {
+      if (host.endsWith(suffix)) {
+        return { blocked: true, reason: `정부/공공기관 도메인: ${suffix}` };
       }
     }
 

@@ -1,0 +1,10 @@
+{
+  "functions": {
+    "app/api/companies/[id]/enrich/route.ts": {
+      "maxDuration": 120
+    },
+    "app/api/crawl/route.ts": {
+      "maxDuration": 60
+    }
+  }
+}
