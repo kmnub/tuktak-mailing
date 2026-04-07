@@ -164,11 +164,13 @@ export default function ExhibitionDetailPage() {
   const [error, setError] = useState<string | null>(null);
 
   // 수집 입력
-  const [crawlTab, setCrawlTab] = useState<"url" | "paste">("url");
+  const [crawlTab, setCrawlTab] = useState<"url" | "paste" | "api">("url");
   const [crawlUrl, setCrawlUrl] = useState("");
   const [totalPages, setTotalPages] = useState("");
   const [useAI, setUseAI] = useState(false);
   const [infiniteScroll, setInfiniteScroll] = useState(false);
+  const [apiUrl, setApiUrl] = useState("");
+  const [apiBody, setApiBody] = useState("");
   const [showContinue, setShowContinue] = useState(false);
   const [pastedHtml, setPastedHtml] = useState("");
   const [crawling, setCrawling] = useState(false);
@@ -315,6 +317,37 @@ export default function ExhibitionDetailPage() {
   };
 
   const stopCrawl = () => { crawlAbortRef.current = true; };
+
+  /* ─── JSON API 직접 수집 ─── */
+  const handleApiCrawl = async () => {
+    const url = apiUrl.trim();
+    if (!url) { setCrawlError("API URL을 입력해주세요."); return; }
+    let parsed: Record<string, unknown>;
+    try {
+      parsed = JSON.parse(apiBody.trim() || "{}");
+    } catch {
+      setCrawlError("Request Body가 올바른 JSON 형식이 아닙니다."); return;
+    }
+    setCrawling(true);
+    setCrawlError(null);
+    setCrawlMsg(null);
+    try {
+      const origin = (() => { try { return new URL(url).origin; } catch { return ""; } })();
+      const res = await fetch("/api/crawl-json", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ apiUrl: url, requestBody: parsed, exhibitionId: id, originHeader: origin }),
+      });
+      const d = await res.json();
+      if (!res.ok) { setCrawlError(d.error ?? "수집 실패"); return; }
+      await loadData();
+      setCrawlMsg(`API 수집 완료 — ${d.pages_fetched}페이지, ${d.count}개 기업`);
+    } catch {
+      setCrawlError("서버 오류가 발생했습니다.");
+    } finally {
+      setCrawling(false);
+    }
+  };
 
   /* ─── HTML 붙여넣기 수집 ─── */
   const handlePasteCrawl = async () => {
@@ -615,6 +648,12 @@ export default function ExhibitionDetailPage() {
                 URL 입력
               </button>
               <button
+                onClick={() => { setCrawlTab("api"); setCrawlError(null); setCrawlMsg(null); }}
+                className={`px-3 py-1.5 transition-colors ${crawlTab === "api" ? "bg-indigo-600 text-white" : "text-gray-500 hover:bg-gray-50"}`}
+              >
+                JSON API
+              </button>
+              <button
                 onClick={() => { setCrawlTab("paste"); setCrawlError(null); setCrawlMsg(null); }}
                 className={`px-3 py-1.5 transition-colors ${crawlTab === "paste" ? "bg-indigo-600 text-white" : "text-gray-500 hover:bg-gray-50"}`}
               >
@@ -688,6 +727,43 @@ export default function ExhibitionDetailPage() {
                   수집 중단
                 </button>
               )}
+            </div>
+          ) : crawlTab === "api" ? (
+            /* JSON API 직접 수집 모드 */
+            <div className="space-y-2">
+              <p className="text-xs text-gray-400">
+                Chrome F12 → Network → Fetch/XHR → 기업 목록 API 요청 우클릭 → Copy as cURL → API URL과 Request Body만 아래에 입력
+              </p>
+              <input
+                type="text"
+                value={apiUrl}
+                onChange={(e) => setApiUrl(e.target.value)}
+                placeholder="https://api.example.com/api/exhibitor"
+                disabled={crawling}
+                className="w-full border border-gray-300 rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:bg-gray-50 font-mono"
+              />
+              <textarea
+                value={apiBody}
+                onChange={(e) => setApiBody(e.target.value)}
+                placeholder={'{"lang":"kor","curPage":1,"pageList":100,...}'}
+                disabled={crawling}
+                rows={4}
+                className="w-full border border-gray-300 rounded-xl px-4 py-3 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:bg-gray-50 resize-none"
+              />
+              <div className="flex justify-end">
+                <button
+                  onClick={handleApiCrawl}
+                  disabled={crawling || !apiUrl.trim()}
+                  className="flex items-center gap-1.5 bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 transition-colors shadow-sm whitespace-nowrap"
+                >
+                  {crawling ? <SpinnerIcon className="w-4 h-4" /> : (
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                    </svg>
+                  )}
+                  전체 수집
+                </button>
+              </div>
             </div>
           ) : (
             /* HTML 붙여넣기 모드 */
