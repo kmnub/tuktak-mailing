@@ -2,9 +2,11 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { createSupabaseBrowser } from "@/lib/supabase/browser";
 
 export default function LoginPage() {
   const router = useRouter();
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -14,18 +16,14 @@ export default function LoginPage() {
     setError(null);
     setLoading(true);
     try {
-      const res = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password }),
-      });
-      if (res.ok) {
-        router.push("/exhibitions");
-        router.refresh();
-      } else {
-        const d = await res.json();
-        setError(d.error ?? "로그인에 실패했습니다.");
+      const supabase = createSupabaseBrowser();
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) {
+        setError("이메일 또는 비밀번호가 올바르지 않습니다.");
+        return;
       }
+      router.push("/exhibitions");
+      router.refresh();
     } catch {
       setError("서버에 연결할 수 없습니다.");
     } finally {
@@ -44,10 +42,24 @@ export default function LoginPage() {
         </div>
 
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 px-8 py-8">
-          <h1 className="text-lg font-bold text-gray-900 mb-1">관리자 로그인</h1>
-          <p className="text-sm text-gray-500 mb-6">비밀번호를 입력하세요.</p>
+          <h1 className="text-lg font-bold text-gray-900 mb-1">로그인</h1>
+          <p className="text-sm text-gray-500 mb-6">계정 정보를 입력하세요.</p>
 
           <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                이메일
+              </label>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="example@company.com"
+                autoFocus
+                autoComplete="email"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-shadow"
+              />
+            </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1.5">
                 비밀번호
@@ -57,7 +69,7 @@ export default function LoginPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••"
-                autoFocus
+                autoComplete="current-password"
                 className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-shadow"
               />
             </div>
@@ -70,10 +82,10 @@ export default function LoginPage() {
 
             <button
               type="submit"
-              disabled={loading || !password}
+              disabled={loading || !email || !password}
               className="w-full bg-indigo-600 text-white py-2.5 rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 transition-colors"
             >
-              {loading ? "확인 중..." : "로그인"}
+              {loading ? "로그인 중..." : "로그인"}
             </button>
           </form>
         </div>
