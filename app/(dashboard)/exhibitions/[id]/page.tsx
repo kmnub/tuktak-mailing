@@ -193,6 +193,7 @@ export default function ExhibitionDetailPage() {
 
   // 수집 입력
   const [crawlUrl, setCrawlUrl] = useState("");
+  const [totalPages, setTotalPages] = useState(1);
   const [infiniteScroll, setInfiniteScroll] = useState(false);
   const [useAI, setUseAI] = useState(false);
   const [curlInput, setCurlInput] = useState("");
@@ -257,7 +258,7 @@ export default function ExhibitionDetailPage() {
     if (!url) { setCrawlError("URL을 입력해주세요."); urlInputRef.current?.focus(); return; }
     if (!/^https?:\/\/.+/.test(url)) { setCrawlError("http:// 또는 https://로 시작하는 URL을 입력하세요."); return; }
 
-    const urls = [url];
+    const urls = totalPages > 1 ? generatePageUrls(url, totalPages) : [url];
 
     setCrawling(true);
     setCrawlError(null);
@@ -806,6 +807,18 @@ export default function ExhibitionDetailPage() {
               disabled={crawling}
               className="flex-1 min-w-0 border border-gray-300 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:bg-gray-50"
             />
+            <div className="flex items-center gap-1.5 shrink-0">
+              <label className="text-xs text-gray-400 whitespace-nowrap">페이지 수</label>
+              <input
+                type="number"
+                min={1}
+                max={50}
+                value={totalPages}
+                onChange={(e) => setTotalPages(Math.max(1, Math.min(50, Number(e.target.value) || 1)))}
+                disabled={crawling}
+                className="w-14 border border-gray-300 rounded-xl px-2 py-2.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:bg-gray-50"
+              />
+            </div>
             {!crawling ? (
               <button
                 onClick={handleCrawl}
