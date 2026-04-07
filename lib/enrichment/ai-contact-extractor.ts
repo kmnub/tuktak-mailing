@@ -17,6 +17,7 @@ export interface AIContactResult {
 function getCleanText(html: string): string {
   const $ = cheerio.load(html);
   $("script, style, nav, header, footer, noscript").remove();
+  $("div,p,td,th,li,br,h1,h2,h3,h4,h5,h6,span,a,strong,b,em,i,label,dd,dt").before(" ");
   return $("body").text().replace(/\s+/g, " ").trim();
 }
 

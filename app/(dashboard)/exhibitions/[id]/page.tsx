@@ -188,6 +188,7 @@ export default function ExhibitionDetailPage() {
   // 수집 입력
   const [crawlUrl, setCrawlUrl] = useState("");
   const [infiniteScroll, setInfiniteScroll] = useState(false);
+  const [useAI, setUseAI] = useState(false);
   const [curlInput, setCurlInput] = useState("");
   const [showContinue, setShowContinue] = useState(false);
   const [showFallback, setShowFallback] = useState(false);
@@ -273,6 +274,7 @@ export default function ExhibitionDetailPage() {
             singlePage: true,
             infiniteScroll,
             scrollCount: 20,
+            useAI,
             exhibitionId: id,
           }),
         });
@@ -755,31 +757,48 @@ export default function ExhibitionDetailPage() {
             {showFallback && (
               <div className="mt-3 space-y-3">
 
-                {/* 방법 1: 스크롤 */}
+                {/* 방법 1: 옵션 */}
                 <div className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-3 space-y-2">
-                  <p className="text-xs font-semibold text-gray-700">방법 1 — 스크롤하면 목록이 더 나오는 사이트</p>
-                  <p className="text-xs text-gray-500">페이지를 아래로 내리면 기업이 더 나타나는 사이트에 사용하세요.</p>
-                  <div className="flex items-center gap-3">
-                    <label className="flex items-center gap-2 cursor-pointer">
+                  <p className="text-xs font-semibold text-gray-700">방법 1 — 수집 옵션 조정</p>
+                  <div className="flex flex-col gap-2">
+                    <label className="flex items-start gap-2 cursor-pointer">
                       <input
                         type="checkbox"
                         checked={infiniteScroll}
                         onChange={(e) => setInfiniteScroll(e.target.checked)}
                         disabled={crawling}
-                        className="w-4 h-4 accent-indigo-600"
+                        className="w-4 h-4 accent-indigo-600 mt-0.5 shrink-0"
                       />
-                      <span className="text-xs text-gray-700">스크롤 수집 켜기</span>
+                      <span className="text-xs text-gray-700">
+                        <span className="font-medium">스크롤 수집</span>
+                        <span className="text-gray-400 ml-1">— 페이지를 내릴 때 기업이 더 나타나는 사이트</span>
+                      </span>
                     </label>
-                    {infiniteScroll && (
+                    <label className="flex items-start gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={useAI}
+                        onChange={(e) => setUseAI(e.target.checked)}
+                        disabled={crawling}
+                        className="w-4 h-4 accent-indigo-600 mt-0.5 shrink-0"
+                      />
+                      <span className="text-xs text-gray-700">
+                        <span className="font-medium">AI 추출</span>
+                        <span className="text-gray-400 ml-1">— 일반 수집으로 찾지 못할 때 AI가 직접 분석</span>
+                      </span>
+                    </label>
+                  </div>
+                  {(infiniteScroll || useAI) && (
+                    <div className="flex justify-end pt-1">
                       <button
                         onClick={handleCrawl}
                         disabled={crawling || !crawlUrl.trim()}
                         className="text-xs bg-indigo-600 text-white px-3 py-1.5 rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition-colors font-medium"
                       >
-                        {crawling ? "수집 중..." : "스크롤 수집 시작"}
+                        {crawling ? "수집 중..." : "옵션 적용 후 수집"}
                       </button>
-                    )}
-                  </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* 방법 2: HTML 붙여넣기 */}

@@ -16,11 +16,24 @@ const FETCH_HEADERS = {
   "Accept-Language": "ko-KR,ko;q=0.9",
 };
 
-const EMAIL_RE = /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/g;
+// (?![a-zA-Z0-9]) : TLD 뒤에 알파벳/숫자가 이어지면 매칭 거부
+// (텍스트 분리 후 "abc@abc.com KRECN" → "abc@abc.com" 만 잡힘)
+const EMAIL_RE = /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,15}(?![a-zA-Z0-9])/g;
 const PHONE_RE = /(?:0\d{1,2})[-.\s]?\d{3,4}[-.\s]?\d{4}/g;
 
-// 유효하지 않은 이메일 필터 (이미지 파일명, 예시 등)
-const EMAIL_BLACKLIST = ["example", "sentry", "wixpress", "@2x", ".png", ".jpg", ".gif"];
+// 유효하지 않은 이메일 필터 (이미지 파일명, 예시, 호스팅 인프라 등)
+const EMAIL_BLACKLIST = [
+  // 예시/테스트
+  "example", "dummy",
+  // 이미지·에셋 경로
+  "@2x", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".ico",
+  // SaaS·호스팅 인프라
+  "sentry", "wixpress",
+  "amazonaws", "cloudfront", "fastly", "akamai",
+  "sendgrid", "mailchimp", "mailgun",
+  // 시스템 이메일
+  "noreply", "no-reply", "donotreply", "postmaster", "mailer-daemon",
+];
 
 function buildContactPages(baseUrl: string): string[] {
   try {
@@ -97,7 +110,13 @@ function fromLinks(html: string): { emails: string[]; phones: string[] } {
 function fromRegex(html: string): { emails: string[]; phones: string[] } {
   const $ = cheerio.load(html);
   $("script, style, nav, header, noscript").remove();
-  const text = $("body").text();
+
+  // 인접 요소 텍스트가 붙지 않도록 블록·인라인 요소 앞에 공백 삽입
+  // 예) <td>Email</td><td>abc@test.com</td> → "Email abc@test.com"
+  //     (없으면 "Emailabc@test.com" 으로 잘못 추출됨)
+  $("div,p,td,th,li,br,h1,h2,h3,h4,h5,h6,span,a,strong,b,em,i,label,dd,dt").before(" ");
+
+  const text = $("body").text().replace(/\s+/g, " ").trim();
 
   const emails = [...new Set(text.match(EMAIL_RE) ?? [])].filter(
     (e) => !EMAIL_BLACKLIST.some((b) => e.toLowerCase().includes(b))
