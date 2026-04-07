@@ -1,6 +1,34 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase/client";
 
+export async function PATCH(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const { id } = await params;
+  const body = await req.json() as Record<string, unknown>;
+
+  const allowed = ["name", "manager", "date", "location"] as const;
+  const updates: Record<string, unknown> = {};
+  for (const key of allowed) {
+    if (key in body) updates[key] = body[key] ?? null;
+  }
+
+  if (!updates.name || typeof updates.name !== "string" || !(updates.name as string).trim()) {
+    return NextResponse.json({ error: "박람회명은 필수입니다." }, { status: 400 });
+  }
+
+  const { data, error } = await supabase
+    .from("exhibitions")
+    .update(updates)
+    .eq("id", id)
+    .select()
+    .single();
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ exhibition: data });
+}
+
 export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }

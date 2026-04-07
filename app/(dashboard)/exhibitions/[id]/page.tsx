@@ -185,6 +185,12 @@ export default function ExhibitionDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // 박람회 정보 수정
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editForm, setEditForm] = useState({ name: "", manager: "", date: "", location: "" });
+  const [editSaving, setEditSaving] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+
   // 수집 입력
   const [crawlUrl, setCrawlUrl] = useState("");
   const [infiniteScroll, setInfiniteScroll] = useState(false);
@@ -552,6 +558,40 @@ export default function ExhibitionDetailPage() {
     await loadData();
   };
 
+  /* ─── 박람회 정보 수정 ─── */
+  const openEditModal = () => {
+    if (!exhibition) return;
+    setEditForm({
+      name: exhibition.name,
+      manager: exhibition.manager ?? "",
+      date: exhibition.date ?? "",
+      location: exhibition.location ?? "",
+    });
+    setEditError(null);
+    setShowEditModal(true);
+  };
+
+  const handleEditSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!exhibition) return;
+    if (!editForm.name.trim()) { setEditError("박람회명을 입력해주세요."); return; }
+    setEditSaving(true);
+    setEditError(null);
+    try {
+      const res = await fetch(`/api/exhibitions/${exhibition.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(editForm),
+      });
+      const d = await res.json();
+      if (!res.ok) { setEditError(d.error); return; }
+      setExhibition((prev) => prev ? { ...prev, ...d.exhibition } : prev);
+      setShowEditModal(false);
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
   /* ─── 엑셀 다운로드 ─── */
   const downloadExcel = () => {
     const rows = sortedCompanies
@@ -648,13 +688,107 @@ export default function ExhibitionDetailPage() {
 
         {/* 박람회 정보 */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm px-6 py-5">
-          <h1 className="text-xl font-bold text-gray-900">{exhibition.name}</h1>
-          <div className="flex flex-wrap gap-4 mt-2 text-sm text-gray-500">
-            {exhibition.date && <span>📅 {formatDate(exhibition.date)}</span>}
-            {exhibition.location && <span>📍 {exhibition.location}</span>}
-            {exhibition.manager && <span>👤 {exhibition.manager}</span>}
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <h1 className="text-xl font-bold text-gray-900 truncate">{exhibition.name}</h1>
+              <div className="flex flex-wrap gap-4 mt-2 text-sm text-gray-500">
+                {exhibition.date && <span>📅 {formatDate(exhibition.date)}</span>}
+                {exhibition.location && <span>📍 {exhibition.location}</span>}
+                {exhibition.manager && <span>👤 {exhibition.manager}</span>}
+              </div>
+            </div>
+            <button
+              onClick={openEditModal}
+              className="shrink-0 flex items-center gap-1.5 text-sm text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 px-3 py-1.5 rounded-lg transition-colors"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+              </svg>
+              수정
+            </button>
           </div>
         </div>
+
+        {/* 박람회 수정 모달 */}
+        {showEditModal && (
+          <div
+            className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
+            onClick={(e) => { if (e.target === e.currentTarget) setShowEditModal(false); }}
+          >
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+              <div className="px-6 py-5 border-b border-gray-100">
+                <h2 className="text-lg font-bold text-gray-900">박람회 정보 수정</h2>
+                <p className="text-sm text-gray-500 mt-0.5">잘못 입력된 내용을 수정하세요.</p>
+              </div>
+              <form onSubmit={handleEditSave} className="px-6 py-5 space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                    박람회명 <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={editForm.name}
+                    onChange={(e) => setEditForm((p) => ({ ...p, name: e.target.value }))}
+                    autoFocus
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-shadow"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1.5">담당자</label>
+                    <input
+                      type="text"
+                      value={editForm.manager}
+                      onChange={(e) => setEditForm((p) => ({ ...p, manager: e.target.value }))}
+                      placeholder="홍길동"
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-shadow"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1.5">날짜</label>
+                    <input
+                      type="date"
+                      value={editForm.date}
+                      onChange={(e) => setEditForm((p) => ({ ...p, date: e.target.value }))}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-shadow"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">장소</label>
+                  <input
+                    type="text"
+                    value={editForm.location}
+                    onChange={(e) => setEditForm((p) => ({ ...p, location: e.target.value }))}
+                    placeholder="예: 코엑스 A홀"
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-shadow"
+                  />
+                </div>
+                {editError && (
+                  <p className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+                    {editError}
+                  </p>
+                )}
+                <div className="flex gap-3 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setShowEditModal(false)}
+                    className="flex-1 border border-gray-300 text-gray-700 px-4 py-2.5 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors"
+                  >
+                    취소
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={editSaving}
+                    className="flex-1 bg-indigo-600 text-white px-4 py-2.5 rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+                  >
+                    {editSaving ? "저장 중..." : "저장"}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
 
         {/* 기업명 수집 */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm px-6 py-5 space-y-3">
