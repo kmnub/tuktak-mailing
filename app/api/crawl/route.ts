@@ -91,8 +91,9 @@ async function buildPageUrls(
   totalPages: number
 ): Promise<string[]> {
   const base = new URL(originalUrl);
-  const PAGE_PARAMS = ["page", "cpage", "p", "pagenum", "pg"];
+  const PAGE_PARAMS = ["page", "cpage", "p", "pagenum", "pg", "selPageNo", "pageNo", "pageNum", "currentPage", "cur_page"];
 
+  // 1. 쿼리스트링에서 페이지 파라미터 확인
   for (const param of PAGE_PARAMS) {
     if (base.searchParams.has(param)) {
       return Array.from({ length: totalPages - 1 }, (_, i) => {
@@ -103,6 +104,34 @@ async function buildPageUrls(
     }
   }
 
+  // 2. 해시 프래그먼트에서 페이지 파라미터 확인 (e.g. #/?...&selPageNo=1)
+  const hash = base.hash;
+  if (hash && hash.includes("=")) {
+    const hashWithoutSharp = hash.slice(1);
+    const qIdx = hashWithoutSharp.indexOf("?");
+    let hashQueryStr: string;
+    let hashPrefix: string;
+    if (qIdx >= 0) {
+      hashPrefix = hashWithoutSharp.slice(0, qIdx + 1);
+      hashQueryStr = hashWithoutSharp.slice(qIdx + 1);
+    } else {
+      hashPrefix = "";
+      hashQueryStr = hashWithoutSharp;
+    }
+    const hashParams = new URLSearchParams(hashQueryStr);
+    const hashPageParam = PAGE_PARAMS.find((p) => hashParams.has(p));
+    if (hashPageParam) {
+      return Array.from({ length: totalPages - 1 }, (_, i) => {
+        const newHashParams = new URLSearchParams(hashQueryStr);
+        newHashParams.set(hashPageParam, String(i + 2));
+        const u = new URL(originalUrl);
+        u.hash = hashPrefix + newHashParams.toString();
+        return u.toString();
+      });
+    }
+  }
+
+  // 3. 쿼리스트링 파라미터 탐색 (실제 다른 HTML 반환하는지 확인)
   for (const param of PAGE_PARAMS) {
     const testUrl = new URL(originalUrl);
     testUrl.searchParams.set(param, "2");

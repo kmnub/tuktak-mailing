@@ -56,11 +56,49 @@ function generatePageUrls(baseUrl: string, numPages: number): string[] {
   if (numPages <= 1) return [baseUrl];
   try {
     const u = new URL(baseUrl);
-    const pageParams = ["page", "cpage", "p", "pagenum", "pg"];
-    const existingParam = pageParams.find((p) => u.searchParams.has(p)) ?? "page";
+    const pageParams = ["page", "cpage", "p", "pagenum", "pg", "selPageNo", "pageNo", "pageNum", "currentPage", "cur_page"];
+
+    // 1. 쿼리스트링에서 페이지 파라미터 확인
+    const existingParam = pageParams.find((p) => u.searchParams.has(p));
+    if (existingParam) {
+      return Array.from({ length: numPages }, (_, i) => {
+        const next = new URL(baseUrl);
+        next.searchParams.set(existingParam, String(i + 1));
+        return next.toString();
+      });
+    }
+
+    // 2. 해시 프래그먼트에서 페이지 파라미터 확인 (e.g. #/?...&selPageNo=1)
+    const hash = u.hash; // "#/?TYPE=cfair&...&selPageNo=1"
+    if (hash && hash.includes("=")) {
+      const hashWithoutSharp = hash.slice(1); // "/?TYPE=cfair&...&selPageNo=1"
+      const qIdx = hashWithoutSharp.indexOf("?");
+      let hashQueryStr: string;
+      let hashPrefix: string;
+      if (qIdx >= 0) {
+        hashPrefix = hashWithoutSharp.slice(0, qIdx + 1); // "/?"
+        hashQueryStr = hashWithoutSharp.slice(qIdx + 1);  // "TYPE=cfair&...&selPageNo=1"
+      } else {
+        hashPrefix = "";
+        hashQueryStr = hashWithoutSharp;
+      }
+      const hashParams = new URLSearchParams(hashQueryStr);
+      const hashPageParam = pageParams.find((p) => hashParams.has(p));
+      if (hashPageParam) {
+        return Array.from({ length: numPages }, (_, i) => {
+          const newHashParams = new URLSearchParams(hashQueryStr);
+          newHashParams.set(hashPageParam, String(i + 1));
+          const next = new URL(baseUrl);
+          next.hash = hashPrefix + newHashParams.toString();
+          return next.toString();
+        });
+      }
+    }
+
+    // 3. 기본: 쿼리스트링에 page 파라미터 추가
     return Array.from({ length: numPages }, (_, i) => {
       const next = new URL(baseUrl);
-      next.searchParams.set(existingParam, String(i + 1));
+      next.searchParams.set("page", String(i + 1));
       return next.toString();
     });
   } catch {
