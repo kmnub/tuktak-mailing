@@ -76,8 +76,9 @@ function parseCurl(raw: string): { url: string; body: string; origin: string } |
 
   // --data-raw, --data-binary, --data, -d 모두 처리
   const bodyMatch =
-    raw.match(/(?:--data-raw|--data-binary|--data|-d)\s+\$?'((?:[^'\\]|\\.)*)'/s) ||
-    raw.match(/(?:--data-raw|--data-binary|--data|-d)\s+"((?:[^"\\]|\\.)*)"/s);
+    raw.match(/(?:--data-raw|--data-binary|--data|-d)\s+\$?'((?:[^'\\]|\\.)*)'/) ||
+    raw.match(/(?:--data-raw|--data-binary|--data|-d)\s+"((?:[^"\\]|\\.)*)"/);
+
   let body = bodyMatch ? bodyMatch[1] : "";
   body = body.replace(/\\'/g, "'").replace(/\\"/g, '"');
 
@@ -185,14 +186,11 @@ export default function ExhibitionDetailPage() {
   const [error, setError] = useState<string | null>(null);
 
   // 수집 입력
-  const [crawlTab, setCrawlTab] = useState<"url" | "paste" | "api">("url");
   const [crawlUrl, setCrawlUrl] = useState("");
-  const [totalPages, setTotalPages] = useState("");
-  const [useAI, setUseAI] = useState(false);
   const [infiniteScroll, setInfiniteScroll] = useState(false);
   const [curlInput, setCurlInput] = useState("");
   const [showContinue, setShowContinue] = useState(false);
-  const [crawlHint, setCrawlHint] = useState<string | null>(null);
+  const [showFallback, setShowFallback] = useState(false);
   const [pastedHtml, setPastedHtml] = useState("");
   const [crawling, setCrawling] = useState(false);
   const [crawlProgress, setCrawlProgress] = useState<{ current: number; total: number; found: number } | null>(null);
@@ -252,15 +250,11 @@ export default function ExhibitionDetailPage() {
     if (!url) { setCrawlError("URL을 입력해주세요."); urlInputRef.current?.focus(); return; }
     if (!/^https?:\/\/.+/.test(url)) { setCrawlError("http:// 또는 https://로 시작하는 URL을 입력하세요."); return; }
 
-    const pages = totalPages.trim() ? Math.min(parseInt(totalPages, 10), 50) : 1;
-    if (isNaN(pages) || pages < 1) { setCrawlError("페이지 수는 1 이상이어야 합니다."); return; }
-
-    const urls = generatePageUrls(url, pages);
+    const urls = [url];
 
     setCrawling(true);
     setCrawlError(null);
     setCrawlMsg(null);
-    setCrawlHint(null);
     setShowContinue(false);
     crawlAbortRef.current = false;
     let totalFound = 0;
@@ -276,7 +270,6 @@ export default function ExhibitionDetailPage() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             url: urls[i],
-            useAI,
             singlePage: true,
             infiniteScroll,
             scrollCount: 20,
@@ -300,13 +293,7 @@ export default function ExhibitionDetailPage() {
     if (!crawlAbortRef.current) {
       setCrawlMsg(`수집 완료 — 총 ${totalFound}개 기업`);
       if (infiniteScroll) setShowContinue(true);
-      if (totalFound < 5) {
-        setCrawlHint(
-          infiniteScroll
-            ? "기업이 적게 수집됐습니다. '계속 찾기'를 눌러보거나, 사이트가 XHR API 방식이라면 '고급 수집' 탭을 이용해보세요."
-            : "기업이 적게 수집됐습니다. 스크롤 시 더 로드되는 사이트라면 '무한 스크롤'을 체크해보세요. 그래도 안 된다면 '고급 수집' 탭을 이용해보세요."
-        );
-      }
+      if (totalFound < 5) setShowFallback(true);
     } else {
       setCrawlMsg(`수집 중단 — ${totalFound}개 기업까지 저장됨`);
     }
@@ -326,7 +313,6 @@ export default function ExhibitionDetailPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           url,
-          useAI,
           singlePage: true,
           infiniteScroll: true,
           scrollCount: 40,
@@ -362,7 +348,6 @@ export default function ExhibitionDetailPage() {
     setCrawling(true);
     setCrawlError(null);
     setCrawlMsg(null);
-    setCrawlHint(null);
     try {
       const res = await fetch("/api/crawl-json", {
         method: "POST",
@@ -670,205 +655,74 @@ export default function ExhibitionDetailPage() {
         </div>
 
         {/* 기업명 수집 */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm px-6 py-5">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-sm font-semibold text-gray-700">기업명 수집</h2>
-            <div className="flex rounded-lg border border-gray-200 overflow-hidden text-xs font-medium">
-              <button
-                onClick={() => { setCrawlTab("url"); setCrawlError(null); setCrawlMsg(null); setCrawlHint(null); }}
-                className={`px-3 py-1.5 transition-colors ${crawlTab === "url" ? "bg-indigo-600 text-white" : "text-gray-500 hover:bg-gray-50"}`}
-              >
-                URL 입력
-              </button>
-              <button
-                onClick={() => { setCrawlTab("api"); setCrawlError(null); setCrawlMsg(null); setCrawlHint(null); }}
-                className={`px-3 py-1.5 transition-colors ${crawlTab === "api" ? "bg-indigo-600 text-white" : "text-gray-500 hover:bg-gray-50"}`}
-              >
-                고급 수집
-              </button>
-              <button
-                onClick={() => { setCrawlTab("paste"); setCrawlError(null); setCrawlMsg(null); setCrawlHint(null); }}
-                className={`px-3 py-1.5 transition-colors ${crawlTab === "paste" ? "bg-indigo-600 text-white" : "text-gray-500 hover:bg-gray-50"}`}
-              >
-                HTML 붙여넣기
-              </button>
-            </div>
-          </div>
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm px-6 py-5 space-y-3">
+          <h2 className="text-sm font-semibold text-gray-700">기업명 수집</h2>
 
-          {crawlTab === "url" ? (
-            /* URL 크롤 모드 */
-            <div className="flex items-center gap-2 flex-wrap">
-              <input
-                ref={urlInputRef}
-                type="text"
-                value={crawlUrl}
-                onChange={(e) => setCrawlUrl(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter" && !crawling) handleCrawl(); }}
-                placeholder="https://expo-example.co.kr/exhibitors"
-                disabled={crawling}
-                className="flex-1 min-w-0 border border-gray-300 rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:bg-gray-50"
-              />
-              <input
-                type="number"
-                min={1}
-                max={50}
-                value={totalPages}
-                onChange={(e) => setTotalPages(e.target.value)}
-                placeholder="페이지 수"
-                disabled={crawling || infiniteScroll}
-                className="w-24 border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:bg-gray-50 disabled:text-gray-400"
-              />
-              <label className="flex items-center gap-1.5 text-sm text-gray-600 cursor-pointer select-none whitespace-nowrap">
-                <input
-                  type="checkbox"
-                  checked={infiniteScroll}
-                  onChange={(e) => setInfiniteScroll(e.target.checked)}
-                  disabled={crawling}
-                  className="w-4 h-4 accent-indigo-600"
-                />
-                <span className={infiniteScroll ? "text-indigo-700 font-medium" : ""}>무한 스크롤</span>
-              </label>
-              <label className="flex items-center gap-1.5 text-sm text-gray-600 cursor-pointer select-none whitespace-nowrap">
-                <input
-                  type="checkbox"
-                  checked={useAI}
-                  onChange={(e) => setUseAI(e.target.checked)}
-                  disabled={crawling}
-                  className="w-4 h-4 accent-violet-600"
-                />
-                <span className={useAI ? "text-violet-700 font-medium" : ""}>AI 수집</span>
-              </label>
-              {!crawling ? (
-                <button
-                  onClick={handleCrawl}
-                  disabled={!crawlUrl.trim()}
-                  className="flex items-center gap-1.5 bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 transition-colors shadow-sm whitespace-nowrap"
-                >
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                  </svg>
-                  기업명 수집
-                </button>
-              ) : (
-                <button
-                  onClick={stopCrawl}
-                  className="flex items-center gap-1.5 bg-red-500 text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-red-600 transition-colors shadow-sm whitespace-nowrap"
-                >
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                  수집 중단
-                </button>
-              )}
-            </div>
-          ) : crawlTab === "api" ? (
-            /* 고급 수집 — cURL 붙여넣기 */
-            <div className="space-y-2">
-              <div className="bg-blue-50 border border-blue-100 rounded-xl px-4 py-3 text-xs text-blue-800">
-                <p className="font-semibold mb-1">URL 수집이 잘 안 될 때 사용하세요</p>
-                <ol className="list-decimal list-inside space-y-0.5 text-blue-700">
-                  <li>Chrome에서 박람회 참가업체 페이지 열기</li>
-                  <li>F12 키 → Network 탭 클릭 → XHR 필터 클릭</li>
-                  <li>페이지 새로고침 → 목록에서 exhibitor / company 등 이름의 항목 찾기</li>
-                  <li>항목 우클릭 → Copy → <strong>Copy as cURL</strong></li>
-                  <li>아래 칸에 붙여넣기 (Ctrl+V / Cmd+V)</li>
-                </ol>
-              </div>
-              <textarea
-                value={curlInput}
-                onChange={(e) => setCurlInput(e.target.value)}
-                placeholder={"curl 'https://api.example.com/exhibitors' \\\n  -H 'Content-Type: application/json' \\\n  --data-raw '{\"page\":1,...}'"}
-                disabled={crawling}
-                rows={4}
-                className="w-full border border-gray-300 rounded-xl px-4 py-3 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:bg-gray-50 resize-none"
-              />
-              <div className="flex justify-end">
-                <button
-                  onClick={handleApiCrawl}
-                  disabled={crawling || !curlInput.trim()}
-                  className="flex items-center gap-1.5 bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 transition-colors shadow-sm whitespace-nowrap"
-                >
-                  {crawling ? <SpinnerIcon className="w-4 h-4" /> : (
-                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                    </svg>
-                  )}
-                  전체 수집
-                </button>
-              </div>
-            </div>
-          ) : (
-            /* HTML 붙여넣기 모드 */
-            <div className="space-y-2">
-              <p className="text-xs text-gray-400">
-                Chrome에서 박람회 참가업체 페이지 열기 → F12 → Elements 탭 → 기업 목록 영역 우클릭 → Copy → Copy outerHTML → 아래에 붙여넣기
-              </p>
-              <textarea
-                value={pastedHtml}
-                onChange={(e) => setPastedHtml(e.target.value)}
-                placeholder={'<ul class="exhibitor-list">\n  <li>삼성전자</li>\n  ...\n</ul>'}
-                disabled={crawling}
-                rows={6}
-                className="w-full border border-gray-300 rounded-xl px-4 py-3 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:bg-gray-50 resize-none"
-              />
-              <div className="flex items-center gap-2">
-                <input
-                  type="text"
-                  value={crawlUrl}
-                  onChange={(e) => setCrawlUrl(e.target.value)}
-                  placeholder="출처 URL (선택사항)"
-                  disabled={crawling}
-                  className="flex-1 border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:bg-gray-50"
-                />
-                <button
-                  onClick={handlePasteCrawl}
-                  disabled={crawling || !pastedHtml.trim()}
-                  className="flex items-center gap-1.5 bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 transition-colors shadow-sm whitespace-nowrap"
-                >
-                  {crawling ? <SpinnerIcon className="w-4 h-4" /> : (
-                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                    </svg>
-                  )}
-                  기업명 추출
-                </button>
-              </div>
-            </div>
-          )}
+          {/* 메인: URL 입력 */}
+          <div className="flex gap-2">
+            <input
+              ref={urlInputRef}
+              type="text"
+              value={crawlUrl}
+              onChange={(e) => setCrawlUrl(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter" && !crawling) handleCrawl(); }}
+              placeholder="박람회 참가업체 페이지 주소를 붙여넣으세요"
+              disabled={crawling}
+              className="flex-1 min-w-0 border border-gray-300 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:bg-gray-50"
+            />
+            {!crawling ? (
+              <button
+                onClick={handleCrawl}
+                disabled={!crawlUrl.trim()}
+                className="flex items-center gap-1.5 bg-indigo-600 text-white px-5 py-2.5 rounded-xl text-sm font-semibold hover:bg-indigo-700 disabled:opacity-40 transition-colors shadow-sm whitespace-nowrap"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                수집 시작
+              </button>
+            ) : (
+              <button
+                onClick={stopCrawl}
+                className="flex items-center gap-1.5 bg-red-500 text-white px-5 py-2.5 rounded-xl text-sm font-semibold hover:bg-red-600 transition-colors shadow-sm whitespace-nowrap"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+                중단
+              </button>
+            )}
+          </div>
 
           {/* 수집 진행 바 */}
           {crawlProgress && (
-            <div className="mt-3 space-y-1.5">
+            <div className="space-y-1.5">
               <div className="flex items-center justify-between text-xs text-gray-500">
                 <div className="flex items-center gap-2">
                   <SpinnerIcon className="w-3.5 h-3.5 text-indigo-500" />
-                  <span>
-                    페이지 <strong>{crawlProgress.current}</strong> / {crawlProgress.total} 수집 중
-                  </span>
+                  <span>수집 중...</span>
                 </div>
                 <span className="text-indigo-600 font-medium">{crawlProgress.found}개 발견</span>
               </div>
               <div className="w-full bg-gray-100 rounded-full h-1.5">
-                <div
-                  className="bg-indigo-500 h-1.5 rounded-full transition-all duration-300"
-                  style={{ width: `${(crawlProgress.current / crawlProgress.total) * 100}%` }}
-                />
+                <div className="bg-indigo-500 h-1.5 rounded-full animate-pulse" style={{ width: "60%" }} />
               </div>
             </div>
           )}
 
           {crawlError && (
-            <p className="mt-2.5 text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{crawlError}</p>
+            <p className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{crawlError}</p>
           )}
+
           {crawlMsg && !crawlError && !crawlProgress && (
-            <div className="mt-2.5 flex items-center gap-2 flex-wrap">
+            <div className="flex items-center gap-2 flex-wrap">
               <p className="flex-1 text-sm text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2 flex items-center gap-1.5">
                 <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                 </svg>
                 {crawlMsg}
               </p>
-              {showContinue && crawlTab === "url" && (
+              {showContinue && (
                 <button
                   onClick={handleContinueCrawl}
                   disabled={crawling}
@@ -882,11 +736,109 @@ export default function ExhibitionDetailPage() {
               )}
             </div>
           )}
-          {crawlHint && !crawlError && !crawlProgress && (
-            <p className="mt-2 text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
-              {crawlHint}
-            </p>
-          )}
+
+          {/* 수집이 안 됐나요? 아코디언 */}
+          <div className="border-t border-gray-100 pt-3">
+            <button
+              onClick={() => setShowFallback((v) => !v)}
+              className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-600 transition-colors select-none"
+            >
+              <svg
+                className={`w-3.5 h-3.5 transition-transform duration-200 ${showFallback ? "rotate-180" : ""}`}
+                fill="none" viewBox="0 0 24 24" stroke="currentColor"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+              수집이 안 됐나요?
+            </button>
+
+            {showFallback && (
+              <div className="mt-3 space-y-3">
+
+                {/* 방법 1: 스크롤 */}
+                <div className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-3 space-y-2">
+                  <p className="text-xs font-semibold text-gray-700">방법 1 — 스크롤하면 목록이 더 나오는 사이트</p>
+                  <p className="text-xs text-gray-500">페이지를 아래로 내리면 기업이 더 나타나는 사이트에 사용하세요.</p>
+                  <div className="flex items-center gap-3">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={infiniteScroll}
+                        onChange={(e) => setInfiniteScroll(e.target.checked)}
+                        disabled={crawling}
+                        className="w-4 h-4 accent-indigo-600"
+                      />
+                      <span className="text-xs text-gray-700">스크롤 수집 켜기</span>
+                    </label>
+                    {infiniteScroll && (
+                      <button
+                        onClick={handleCrawl}
+                        disabled={crawling || !crawlUrl.trim()}
+                        className="text-xs bg-indigo-600 text-white px-3 py-1.5 rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition-colors font-medium"
+                      >
+                        {crawling ? "수집 중..." : "스크롤 수집 시작"}
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* 방법 2: HTML 붙여넣기 */}
+                <div className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-3 space-y-2">
+                  <p className="text-xs font-semibold text-gray-700">방법 2 — 페이지 내용 직접 붙여넣기</p>
+                  <ol className="text-xs text-gray-500 list-decimal list-inside space-y-0.5">
+                    <li>Chrome에서 박람회 참가업체 페이지 열기</li>
+                    <li>F12 → Elements 탭 → 기업 목록 영역 우클릭</li>
+                    <li>Copy → Copy outerHTML → 아래 칸에 붙여넣기</li>
+                  </ol>
+                  <textarea
+                    value={pastedHtml}
+                    onChange={(e) => setPastedHtml(e.target.value)}
+                    placeholder="복사한 HTML을 여기에 붙여넣으세요"
+                    disabled={crawling}
+                    rows={4}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-gray-100 resize-none bg-white"
+                  />
+                  <div className="flex justify-end">
+                    <button
+                      onClick={handlePasteCrawl}
+                      disabled={crawling || !pastedHtml.trim()}
+                      className="text-xs bg-indigo-600 text-white px-3 py-1.5 rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition-colors font-medium"
+                    >
+                      {crawling ? "추출 중..." : "기업명 추출"}
+                    </button>
+                  </div>
+                </div>
+
+                {/* 방법 3: 고급 수집 */}
+                <div className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-3 space-y-2">
+                  <p className="text-xs font-semibold text-gray-700">방법 3 — 고급 수집 <span className="text-gray-400 font-normal">(방법 1·2로도 안 될 때)</span></p>
+                  <ol className="text-xs text-gray-500 list-decimal list-inside space-y-0.5">
+                    <li>Chrome에서 참가업체 페이지 열기 → F12 → Network 탭 → XHR 필터</li>
+                    <li>페이지 새로고침 → exhibitor · company 등 이름의 항목 우클릭</li>
+                    <li>Copy → <strong>Copy as cURL</strong> → 아래 칸에 붙여넣기</li>
+                  </ol>
+                  <textarea
+                    value={curlInput}
+                    onChange={(e) => setCurlInput(e.target.value)}
+                    placeholder={"curl 'https://api.example.com/exhibitors' --data-raw '{...}'"}
+                    disabled={crawling}
+                    rows={3}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-gray-100 resize-none bg-white"
+                  />
+                  <div className="flex justify-end">
+                    <button
+                      onClick={handleApiCrawl}
+                      disabled={crawling || !curlInput.trim()}
+                      className="text-xs bg-indigo-600 text-white px-3 py-1.5 rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition-colors font-medium"
+                    >
+                      {crawling ? "수집 중..." : "전체 수집"}
+                    </button>
+                  </div>
+                </div>
+
+              </div>
+            )}
+          </div>
         </div>
 
         {/* 기업 목록 */}
