@@ -3,7 +3,7 @@ import * as cheerio from "cheerio";
 import { extractCompanies } from "@/lib/parser/extract-companies";
 import { extractCompaniesWithAI } from "@/lib/ai/extract-with-ai";
 import { extractCompaniesAI } from "@/lib/crawl/ai-extractor";
-import { scrapeWithFirecrawl } from "@/lib/integrations/firecrawl";
+import { scrapeWithFirecrawl, scrapeWithScroll } from "@/lib/integrations/firecrawl";
 import { scoreAll, type RawCandidate } from "@/lib/scoring/score-company";
 import { filterCompanies } from "@/lib/filter/filter-companies";
 import { supabase } from "@/lib/supabase/client";
@@ -188,7 +188,17 @@ export async function POST(req: NextRequest) {
       totalPages,
       exhibitionId,
       singlePage = false,
-    } = b as { url: string; useAI?: boolean; totalPages?: number; exhibitionId?: string; singlePage?: boolean };
+      infiniteScroll = false,
+      scrollCount = 10,
+    } = b as {
+      url: string;
+      useAI?: boolean;
+      totalPages?: number;
+      exhibitionId?: string;
+      singlePage?: boolean;
+      infiniteScroll?: boolean;
+      scrollCount?: number;
+    };
 
     if (!/^https?:\/\/.+/.test(url)) {
       return NextResponse.json(
@@ -208,14 +218,25 @@ export async function POST(req: NextRequest) {
     const crawlId = crypto.randomUUID();
 
     // ── [1] 첫 페이지 수집 ──────────────────────────────────────────────────
-    let firstHtml = await fetchHtml(url);
+    const firecrawlKey = process.env.FIRECRAWL_API_KEY;
+    let firstHtml: string | null = null;
     let extractionMethod: "html" | "firecrawl" | "ai" = "html";
 
-    // 빠른 점검: 정적 fetch로 의미 있는 콘텐츠가 없으면 Firecrawl(JS 렌더링) 시도
-    const quickCheck = firstHtml ? extractCompanies(firstHtml, url) : [];
-    if (quickCheck.length < PLAYWRIGHT_THRESHOLD) {
-      const firecrawlKey = process.env.FIRECRAWL_API_KEY;
-      if (firecrawlKey) {
+    // 무한 스크롤 모드: 바로 Firecrawl 스크롤 액션 사용
+    if (infiniteScroll && firecrawlKey) {
+      console.log(`[크롤링] 무한 스크롤 모드 — Firecrawl scroll x${scrollCount}`);
+      const fcResult = await scrapeWithScroll(url, firecrawlKey, scrollCount, 90000);
+      if (fcResult?.html) {
+        firstHtml = fcResult.html;
+        extractionMethod = "firecrawl";
+      }
+    }
+
+    // 일반 모드: fetch 우선, 결과 부족하면 Firecrawl
+    if (!firstHtml) {
+      firstHtml = await fetchHtml(url);
+      const quickCheck = firstHtml ? extractCompanies(firstHtml, url) : [];
+      if (quickCheck.length < PLAYWRIGHT_THRESHOLD && firecrawlKey) {
         console.log(`[크롤링] 정적 결과 ${quickCheck.length}개 → Firecrawl 시도`);
         const fcResult = await scrapeWithFirecrawl(url, firecrawlKey, 30000);
         if (fcResult?.html) {
@@ -234,7 +255,7 @@ export async function POST(req: NextRequest) {
 
     // ── [2] 추가 페이지 URL 결정 ────────────────────────────────────────────
     let additionalPageUrls: string[];
-    if (singlePage) {
+    if (infiniteScroll || singlePage) {
       additionalPageUrls = [];
     } else if (totalPages && totalPages > 1) {
       additionalPageUrls = await buildPageUrls(firstHtml, url, totalPages);
@@ -243,7 +264,6 @@ export async function POST(req: NextRequest) {
     }
 
     // ── [3] 추가 페이지 병렬 수집 ───────────────────────────────────────────
-    const firecrawlKey = process.env.FIRECRAWL_API_KEY;
     const additionalHtmls = await Promise.all(
       additionalPageUrls.map(async (pageUrl) => {
         const html = await fetchHtml(pageUrl);

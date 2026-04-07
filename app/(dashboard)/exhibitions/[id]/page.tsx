@@ -168,6 +168,7 @@ export default function ExhibitionDetailPage() {
   const [crawlUrl, setCrawlUrl] = useState("");
   const [totalPages, setTotalPages] = useState("");
   const [useAI, setUseAI] = useState(false);
+  const [infiniteScroll, setInfiniteScroll] = useState(false);
   const [pastedHtml, setPastedHtml] = useState("");
   const [crawling, setCrawling] = useState(false);
   const [crawlProgress, setCrawlProgress] = useState<{ current: number; total: number; found: number } | null>(null);
@@ -251,6 +252,7 @@ export default function ExhibitionDetailPage() {
             url: urls[i],
             useAI,
             singlePage: true,
+            infiniteScroll,
             exhibitionId: id,
           }),
         });
@@ -607,6 +609,16 @@ export default function ExhibitionDetailPage() {
                 disabled={crawling}
                 className="w-24 border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:bg-gray-50"
               />
+              <label className="flex items-center gap-1.5 text-sm text-gray-600 cursor-pointer select-none whitespace-nowrap">
+                <input
+                  type="checkbox"
+                  checked={infiniteScroll}
+                  onChange={(e) => setInfiniteScroll(e.target.checked)}
+                  disabled={crawling}
+                  className="w-4 h-4 accent-indigo-600"
+                />
+                <span className={infiniteScroll ? "text-indigo-700 font-medium" : ""}>무한 스크롤</span>
+              </label>
               <label className="flex items-center gap-1.5 text-sm text-gray-600 cursor-pointer select-none whitespace-nowrap">
                 <input
                   type="checkbox"
