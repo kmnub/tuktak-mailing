@@ -189,7 +189,7 @@ export async function POST(req: NextRequest) {
       exhibitionId,
       singlePage = false,
       infiniteScroll = false,
-      scrollCount = 10,
+      scrollCount = 20,
     } = b as {
       url: string;
       useAI?: boolean;
@@ -328,8 +328,19 @@ export async function POST(req: NextRequest) {
     const filtered = filterCompanies(scored);
 
     // ── [7] DB 저장 ──────────────────────────────────────────────────────────
-    if (filtered.length > 0) {
-      const records = filtered.map((c) => ({
+    // 같은 박람회에 이미 수집된 기업은 중복 삽입하지 않음
+    let toInsert = filtered;
+    if (exhibitionId && filtered.length > 0) {
+      const { data: existing } = await supabase
+        .from("company_candidates")
+        .select("normalized_name")
+        .eq("exhibition_id", exhibitionId);
+      const existingNames = new Set((existing ?? []).map((e) => e.normalized_name));
+      toInsert = filtered.filter((c) => !existingNames.has(c.normalizedName));
+    }
+
+    if (toInsert.length > 0) {
+      const records = toInsert.map((c) => ({
         crawl_id: crawlId,
         ...(exhibitionId && { exhibition_id: exhibitionId }),
         raw_name: c.name,
@@ -360,8 +371,8 @@ export async function POST(req: NextRequest) {
       source_url: url,
       pages_fetched: allPages.length,
       extraction_method: extractionMethod,
-      count: filtered.length,
-      companies: filtered.map((c) => ({ name: c.name, score: c.score })),
+      count: toInsert.length,
+      companies: toInsert.map((c) => ({ name: c.name, score: c.score })),
     });
   } catch (err) {
     console.error("[크롤링 API 오류]", err);

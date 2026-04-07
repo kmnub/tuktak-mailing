@@ -169,6 +169,7 @@ export default function ExhibitionDetailPage() {
   const [totalPages, setTotalPages] = useState("");
   const [useAI, setUseAI] = useState(false);
   const [infiniteScroll, setInfiniteScroll] = useState(false);
+  const [showContinue, setShowContinue] = useState(false);
   const [pastedHtml, setPastedHtml] = useState("");
   const [crawling, setCrawling] = useState(false);
   const [crawlProgress, setCrawlProgress] = useState<{ current: number; total: number; found: number } | null>(null);
@@ -236,6 +237,7 @@ export default function ExhibitionDetailPage() {
     setCrawling(true);
     setCrawlError(null);
     setCrawlMsg(null);
+    setShowContinue(false);
     crawlAbortRef.current = false;
     let totalFound = 0;
 
@@ -253,6 +255,7 @@ export default function ExhibitionDetailPage() {
             useAI,
             singlePage: true,
             infiniteScroll,
+            scrollCount: 20,
             exhibitionId: id,
           }),
         });
@@ -272,8 +275,42 @@ export default function ExhibitionDetailPage() {
     setCrawlProgress(null);
     if (!crawlAbortRef.current) {
       setCrawlMsg(`수집 완료 — 총 ${totalFound}개 기업`);
+      if (infiniteScroll) setShowContinue(true);
     } else {
       setCrawlMsg(`수집 중단 — ${totalFound}개 기업까지 저장됨`);
+    }
+  };
+
+  /* ─── 계속 찾기 (40회 스크롤) ─── */
+  const handleContinueCrawl = async () => {
+    const url = crawlUrl.trim();
+    if (!url) return;
+    setCrawling(true);
+    setCrawlError(null);
+    setCrawlMsg(null);
+    setShowContinue(false);
+    try {
+      const res = await fetch("/api/crawl", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          url,
+          useAI,
+          singlePage: true,
+          infiniteScroll: true,
+          scrollCount: 40,
+          exhibitionId: id,
+        }),
+      });
+      const d = await res.json();
+      if (!res.ok) { setCrawlError(d.error ?? "수집 실패"); return; }
+      await loadData();
+      setCrawlMsg(`계속 수집 완료 — ${d.count}개 추가`);
+      setShowContinue(true);
+    } catch {
+      setCrawlError("서버 오류가 발생했습니다.");
+    } finally {
+      setCrawling(false);
     }
   };
 
@@ -606,8 +643,8 @@ export default function ExhibitionDetailPage() {
                 value={totalPages}
                 onChange={(e) => setTotalPages(e.target.value)}
                 placeholder="페이지 수"
-                disabled={crawling}
-                className="w-24 border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:bg-gray-50"
+                disabled={crawling || infiniteScroll}
+                className="w-24 border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:bg-gray-50 disabled:text-gray-400"
               />
               <label className="flex items-center gap-1.5 text-sm text-gray-600 cursor-pointer select-none whitespace-nowrap">
                 <input
@@ -716,12 +753,26 @@ export default function ExhibitionDetailPage() {
             <p className="mt-2.5 text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{crawlError}</p>
           )}
           {crawlMsg && !crawlError && !crawlProgress && (
-            <p className="mt-2.5 text-sm text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2 flex items-center gap-1.5">
-              <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-              </svg>
-              {crawlMsg}
-            </p>
+            <div className="mt-2.5 flex items-center gap-2 flex-wrap">
+              <p className="flex-1 text-sm text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2 flex items-center gap-1.5">
+                <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+                {crawlMsg}
+              </p>
+              {showContinue && crawlTab === "url" && (
+                <button
+                  onClick={handleContinueCrawl}
+                  disabled={crawling}
+                  className="flex items-center gap-1.5 bg-amber-500 text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-amber-600 disabled:opacity-50 transition-colors shadow-sm whitespace-nowrap"
+                >
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+                  </svg>
+                  계속 찾기
+                </button>
+              )}
+            </div>
           )}
         </div>
 
