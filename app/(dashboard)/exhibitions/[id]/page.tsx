@@ -814,7 +814,7 @@ export default function ExhibitionDetailPage() {
                 min={1}
                 max={50}
                 value={totalPages}
-                onChange={(e) => setTotalPages(Math.max(1, Math.min(50, Number(e.target.value) || 1)))}
+                onChange={(e) => setTotalPages(Math.max(1, Math.min(100, Number(e.target.value) || 1)))}
                 disabled={crawling}
                 className="w-14 border border-gray-300 rounded-xl px-2 py-2.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:bg-gray-50"
               />

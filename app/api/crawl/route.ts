@@ -11,7 +11,7 @@ import { supabase } from "@/lib/supabase/client";
 // Playwright 크롤링은 최대 60초
 export const maxDuration = 60;
 
-const MAX_PAGES = 50;
+const MAX_PAGES = 100;
 const FETCH_TIMEOUT_MS = 15000;
 const PLAYWRIGHT_THRESHOLD = 5; // 이 수 이하면 Playwright 시도
 
