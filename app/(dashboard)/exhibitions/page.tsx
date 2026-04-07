@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 
 interface Exhibition {
@@ -13,43 +13,29 @@ interface Exhibition {
   created_at: string;
 }
 
+type SortCol = "name" | "date" | "manager" | "location" | "company_count" | "created_at";
+type SortDir = "asc" | "desc";
+
 function formatDate(d?: string) {
   if (!d) return null;
   return new Intl.DateTimeFormat("ko-KR", {
     year: "numeric",
-    month: "long",
-    day: "numeric",
+    month: "2-digit",
+    day: "2-digit",
   }).format(new Date(d));
 }
 
-function CalendarIcon() {
-  return (
-    <svg className="w-3.5 h-3.5 flex-shrink-0 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-    </svg>
-  );
-}
-function LocationIcon() {
-  return (
-    <svg className="w-3.5 h-3.5 flex-shrink-0 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-    </svg>
-  );
-}
-function PersonIcon() {
-  return (
-    <svg className="w-3.5 h-3.5 flex-shrink-0 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-    </svg>
-  );
-}
 function PlusIcon() {
   return (
     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
     </svg>
   );
+}
+
+function SortIndicator({ active, dir }: { active: boolean; dir: SortDir }) {
+  if (!active) return <span className="ml-1 text-gray-300 text-xs">↕</span>;
+  return <span className="ml-1 text-indigo-500 text-xs">{dir === "asc" ? "↑" : "↓"}</span>;
 }
 
 export default function ExhibitionsPage() {
@@ -60,8 +46,10 @@ export default function ExhibitionsPage() {
   const [form, setForm] = useState({ name: "", manager: "", date: "", location: "" });
   const [creating, setCreating] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [sortCol, setSortCol] = useState<SortCol>("created_at");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
 
-  const load = async () => {
+  const load = useCallback(async () => {
     try {
       const res = await fetch("/api/exhibitions");
       const d = await res.json();
@@ -71,9 +59,45 @@ export default function ExhibitionsPage() {
     } finally {
       setLoading(false);
     }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const handleSort = (col: SortCol) => {
+    if (sortCol === col) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortCol(col);
+      setSortDir("asc");
+    }
   };
 
-  useEffect(() => { load(); }, []);
+  const sorted = [...exhibitions].sort((a, b) => {
+    let av: string | number = "";
+    let bv: string | number = "";
+    if (sortCol === "company_count") {
+      av = a.company_count;
+      bv = b.company_count;
+    } else if (sortCol === "date") {
+      av = a.date ?? "";
+      bv = b.date ?? "";
+    } else if (sortCol === "created_at") {
+      av = a.created_at;
+      bv = b.created_at;
+    } else if (sortCol === "name") {
+      av = a.name;
+      bv = b.name;
+    } else if (sortCol === "manager") {
+      av = a.manager ?? "";
+      bv = b.manager ?? "";
+    } else if (sortCol === "location") {
+      av = a.location ?? "";
+      bv = b.location ?? "";
+    }
+    if (av < bv) return sortDir === "asc" ? -1 : 1;
+    if (av > bv) return sortDir === "asc" ? 1 : -1;
+    return 0;
+  });
 
   const openModal = () => {
     setForm({ name: "", manager: "", date: "", location: "" });
@@ -101,7 +125,16 @@ export default function ExhibitionsPage() {
     }
   };
 
+  const handleLogout = async () => {
+    await fetch("/api/auth/logout", { method: "POST" });
+    router.push("/login");
+    router.refresh();
+  };
+
   const totalCompanies = exhibitions.reduce((s, e) => s + e.company_count, 0);
+
+  const thClass = (col: SortCol) =>
+    `px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide cursor-pointer select-none hover:text-gray-800 whitespace-nowrap transition-colors`;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -114,19 +147,27 @@ export default function ExhibitionsPage() {
             </div>
             <span className="text-base font-bold text-gray-900">Mailing</span>
           </div>
-          <button
-            onClick={openModal}
-            className="flex items-center gap-1.5 bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700 active:bg-indigo-800 transition-colors shadow-sm"
-          >
-            <PlusIcon />
-            박람회 추가
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={openModal}
+              className="flex items-center gap-1.5 bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors shadow-sm"
+            >
+              <PlusIcon />
+              박람회 추가
+            </button>
+            <button
+              onClick={handleLogout}
+              className="text-sm text-gray-500 hover:text-gray-800 px-3 py-2 rounded-lg hover:bg-gray-100 transition-colors"
+            >
+              로그아웃
+            </button>
+          </div>
         </div>
       </header>
 
       <main className="max-w-6xl mx-auto px-6 py-8">
         {/* Page header */}
-        <div className="mb-8 flex items-end justify-between">
+        <div className="mb-6 flex items-end justify-between">
           <div>
             <h1 className="text-2xl font-bold text-gray-900">박람회 관리</h1>
             <p className="text-gray-500 mt-1 text-sm">박람회별 참가기업 정보를 수집하고 관리합니다.</p>
@@ -150,26 +191,71 @@ export default function ExhibitionsPage() {
         ) : exhibitions.length === 0 ? (
           <EmptyState onAdd={openModal} />
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {exhibitions.map((e) => (
-              <ExhibitionCard
-                key={e.id}
-                exhibition={e}
-                onClick={() => router.push(`/exhibitions/${e.id}`)}
-              />
-            ))}
-            {/* Add button card */}
-            <button
-              onClick={openModal}
-              className="border-2 border-dashed border-gray-200 rounded-xl p-5 text-left hover:border-indigo-300 hover:bg-indigo-50/30 transition-all flex flex-col items-center justify-center gap-2 min-h-[160px] group"
-            >
-              <div className="w-10 h-10 bg-gray-100 group-hover:bg-indigo-100 rounded-full flex items-center justify-center transition-colors">
-                <svg className="w-5 h-5 text-gray-400 group-hover:text-indigo-500 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                </svg>
-              </div>
-              <span className="text-sm text-gray-400 group-hover:text-indigo-500 font-medium transition-colors">새 박람회 추가</span>
-            </button>
+          <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 border-b border-gray-200">
+                <tr>
+                  <th className={thClass("name")} onClick={() => handleSort("name")}>
+                    박람회명 <SortIndicator active={sortCol === "name"} dir={sortDir} />
+                  </th>
+                  <th className={thClass("date")} onClick={() => handleSort("date")}>
+                    날짜 <SortIndicator active={sortCol === "date"} dir={sortDir} />
+                  </th>
+                  <th className={thClass("manager")} onClick={() => handleSort("manager")}>
+                    담당자 <SortIndicator active={sortCol === "manager"} dir={sortDir} />
+                  </th>
+                  <th className={thClass("location")} onClick={() => handleSort("location")}>
+                    장소 <SortIndicator active={sortCol === "location"} dir={sortDir} />
+                  </th>
+                  <th className={thClass("company_count")} onClick={() => handleSort("company_count")}>
+                    기업 수 <SortIndicator active={sortCol === "company_count"} dir={sortDir} />
+                  </th>
+                  <th className={thClass("created_at")} onClick={() => handleSort("created_at")}>
+                    등록일 <SortIndicator active={sortCol === "created_at"} dir={sortDir} />
+                  </th>
+                  <th className="px-4 py-3 w-16" />
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {sorted.map((e) => (
+                  <tr
+                    key={e.id}
+                    onClick={() => router.push(`/exhibitions/${e.id}`)}
+                    className="hover:bg-indigo-50/40 cursor-pointer transition-colors"
+                  >
+                    <td className="px-4 py-3.5 font-medium text-gray-900 max-w-xs">
+                      <span className="line-clamp-1">{e.name}</span>
+                    </td>
+                    <td className="px-4 py-3.5 text-gray-500 whitespace-nowrap">
+                      {formatDate(e.date) ?? <span className="text-gray-300">—</span>}
+                    </td>
+                    <td className="px-4 py-3.5 text-gray-500 whitespace-nowrap">
+                      {e.manager || <span className="text-gray-300">—</span>}
+                    </td>
+                    <td className="px-4 py-3.5 text-gray-500">
+                      {e.location || <span className="text-gray-300">—</span>}
+                    </td>
+                    <td className="px-4 py-3.5">
+                      <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                        e.company_count > 0
+                          ? "bg-indigo-50 text-indigo-700"
+                          : "bg-gray-100 text-gray-400"
+                      }`}>
+                        {e.company_count}개
+                      </span>
+                    </td>
+                    <td className="px-4 py-3.5 text-gray-400 whitespace-nowrap text-xs">
+                      {formatDate(e.created_at)}
+                    </td>
+                    <td className="px-4 py-3.5 text-right">
+                      <svg className="w-4 h-4 text-gray-300 inline" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                      </svg>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
       </main>
@@ -259,61 +345,6 @@ export default function ExhibitionsPage() {
   );
 }
 
-function ExhibitionCard({ exhibition, onClick }: { exhibition: Exhibition; onClick: () => void }) {
-  const hasInfo = exhibition.date || exhibition.location || exhibition.manager;
-  return (
-    <button
-      onClick={onClick}
-      className="bg-white rounded-xl border border-gray-200 p-5 text-left hover:border-indigo-300 hover:shadow-md transition-all group cursor-pointer"
-    >
-      <div className="flex items-start justify-between gap-2 mb-3">
-        <h3 className="font-bold text-gray-900 text-[15px] leading-snug group-hover:text-indigo-700 transition-colors line-clamp-2">
-          {exhibition.name}
-        </h3>
-        <span
-          className={`flex-shrink-0 text-xs font-semibold px-2 py-0.5 rounded-full ${
-            exhibition.company_count > 0
-              ? "bg-indigo-50 text-indigo-700"
-              : "bg-gray-100 text-gray-400"
-          }`}
-        >
-          {exhibition.company_count}개
-        </span>
-      </div>
-
-      {hasInfo && (
-        <div className="space-y-1.5 text-[13px] text-gray-500 mb-4">
-          {exhibition.date && (
-            <div className="flex items-center gap-1.5">
-              <CalendarIcon />
-              {formatDate(exhibition.date)}
-            </div>
-          )}
-          {exhibition.location && (
-            <div className="flex items-center gap-1.5">
-              <LocationIcon />
-              {exhibition.location}
-            </div>
-          )}
-          {exhibition.manager && (
-            <div className="flex items-center gap-1.5">
-              <PersonIcon />
-              {exhibition.manager}
-            </div>
-          )}
-        </div>
-      )}
-
-      <div className="flex items-center justify-end gap-1 text-xs font-medium text-indigo-500 group-hover:text-indigo-700 transition-colors mt-auto pt-1">
-        열기
-        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-        </svg>
-      </div>
-    </button>
-  );
-}
-
 function EmptyState({ onAdd }: { onAdd: () => void }) {
   return (
     <div className="flex flex-col items-center justify-center py-28 text-center">
@@ -330,7 +361,9 @@ function EmptyState({ onAdd }: { onAdd: () => void }) {
         onClick={onAdd}
         className="flex items-center gap-2 bg-indigo-600 text-white px-5 py-2.5 rounded-xl text-sm font-medium hover:bg-indigo-700 transition-colors shadow-sm"
       >
-        <PlusIcon />
+        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+        </svg>
         박람회 추가
       </button>
     </div>
