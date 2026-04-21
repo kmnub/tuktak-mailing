@@ -161,12 +161,6 @@ export default function ExhibitionsPage() {
     }
   };
 
-  const handleLogout = async () => {
-    await fetch("/api/auth/logout", { method: "POST" });
-    router.push("/login");
-    router.refresh();
-  };
-
   const totalCompanies = exhibitions.reduce((s, e) => s + e.company_count, 0);
 
   const thClass = (col: SortCol) =>
@@ -190,12 +184,6 @@ export default function ExhibitionsPage() {
             >
               <PlusIcon />
               박람회 추가
-            </button>
-            <button
-              onClick={handleLogout}
-              className="text-sm text-gray-500 hover:text-gray-800 px-3 py-2 rounded-lg hover:bg-gray-100 transition-colors"
-            >
-              로그아웃
             </button>
           </div>
         </div>
